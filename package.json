@@ -1,0 +1,20 @@
+{
+  "name": "rogue",
+  "version": "1.0.0",
+  "description": "first-ascii-roguelike =====================",
+   "main": "index.html",
+   "scripts": {
+      "start": "parcel index.html --open",
+      "build": "parcel build index.html"
+   },
+   "dependencies": {
+      "rot-js": "2.1.4"
+   },
+   "devDependencies": {
+      "@babel/core": "7.2.0",
+      "parcel-bundler": "^1.6.1"
+   },
+   "keywords": [],
+   "author": "",
+   "license": "ISC"
+}
