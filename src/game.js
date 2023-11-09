@@ -86,8 +86,9 @@ export class Game {
       const treasure = this.randomThing(this.Objects.treasure);
       if (player.enchantments.includes(treasure)) {
          return this.randomTreasure(player);
+      } else {
+         return treasure;
       }
-      return this.randomThing(this.Objects.treasure);
    }
 
    /**
