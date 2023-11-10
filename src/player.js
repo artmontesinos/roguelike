@@ -12,15 +12,17 @@ export class Player {
    experience = 0;
    lightRange = 2;
    enchantments = [];
+   curses = ['☠️'];
    display;
    world;
    justMoved = false;
    x;
    y;
-   health = 100;
+   health = 20;
    attackBonus = 1;
    armourClass = 1;
    gold = 0;
+   fight;
 
    constructor(world, display) {
       this.world = world;
@@ -40,8 +42,11 @@ export class Player {
       this.alive = true;
 
       // reset upgrades and show status messages
-      this.powerDown();
+      this.powerDown(this.experience);
       this.showMessages(true);
+
+      //reset combat
+      this.fight = null;
    }
 
    /**
@@ -62,8 +67,12 @@ export class Player {
          this.world.game.message('monsterCombat', '');
       }
       this.world.game.message('enchantments', this.enchantments.join(''));
+      this.world.game.message('curses', this.curses.join(''));
    }
 
+   /**
+    * Asynchronously performs a player action.
+    */
    async act() {
       let action = false;
       while (!action) {
@@ -72,24 +81,39 @@ export class Player {
             window.addEventListener('keydown', resolve, { once: true });
          });
          action = this.handleKeyPress(event);
-      } // Await a valid movement
+      }
 
+      // if the player dies, end the game
       if (!this.alive) {
          this.world.game.endGame(`You died, level: ${this.experience}`);
       } else {
-         // make it end when the hero reaches the exit
+         // if the player reaches the exit, add experience
+         // and maybe add a new level
          if (this.world.map[this.x][this.y] === this.world.exit) {
             this.experience++;
-            this.world.game.createLevel();
-            this.init();
+
+            // check if you reached level - 50, if so you win!
+            if (this.experience >= this.world.game.maxLevel) {
+               const completed = new Date();
+               const timeInSeconds = (completed.getTime() - this.world.game.startTime.getTime()) / 1000;
+               this.world.game.endGame(`You win, time: ${Math.floor(timeInSeconds)}s`);
+               this.world.game.over = true;
+               this.showMessages(true);
+            } else {
+               // regenerate the level
+               this.world.game.createLevel();
+               this.init();
+            }
          }
       }
    }
 
    /**
     * Power down the character.
+    *
+    * @param {number} level - The level of the character
     */
-   powerDown() {
+   powerDown(level) {
       // health boost diminishes over time
       if (this.health > 100) {
          this.health -= Math.floor(Math.random() * 5) + 1;
@@ -98,25 +122,31 @@ export class Player {
          }
       }
 
+      // drop percentage is based on sleepiness
+      let dropChance = this.curses.includes('😴') ? 0.5 : .95;
+      if (level === 0) {
+         dropChance = 1;
+      }
+
       // chance you drop the ring of secrets
-      if (Math.random() > .9) {
+      if (Math.random() > dropChance) {
          this.enchantments = this.enchantments.filter(e => e !== '💍');
       } else if (this.enchantments.includes('💍')) {
          this.world.revealAllSecrets();
       }
 
       // chance your luck runs out
-      if (Math.random() > .9) {
+      if (Math.random() > dropChance) {
          this.enchantments = this.enchantments.filter(e => e !== '🍀');
       }
 
       // chance you break your bow
-      if (Math.random() > .75) {
+      if (Math.random() > dropChance) {
          this.enchantments = this.enchantments.filter(e => e !== '🏹');
       }
 
       // light spell diminishes over time
-      this.lightRange -= Math.floor(Math.random()) + 1;
+      this.lightRange -= Math.floor(Math.random() > .5 ? 1 : 0);
       if (this.lightRange < 2) {
          this.lightRange = 2;
       }
@@ -125,7 +155,7 @@ export class Player {
    /**
     * Performs a power-up action based on the treasure.
     *
-    * @param {string} - item being picked up
+    * @param {string} item - item being picked up
     */
    powerUp(item) {
       const lucky = this.enchantments.includes('🍀');
@@ -142,8 +172,18 @@ export class Player {
             this.gold += Math.floor(Math.random() * 100 * (lucky ? 5 : 1));
             break;
 
+         case '🥩':
+            this.health += Math.floor(Math.random() * 50 * (lucky ? 2 : 1));
+            break;
+
          case '🧪':
-            this.health += Math.floor(Math.random() * 50 *(lucky ? 2 : 1));
+            this.health += Math.floor(Math.random() * 10 * (lucky ? 2 : 1));
+            this.curses = this.curses.filter(c => c !== '☠️');
+            break;
+
+         case '🧫':
+            this.health += Math.floor(Math.random() * 10 * (lucky ? 2 : 1));
+            this.curses = this.curses.filter(c => c !== '😴');
             break;
 
          case '🏹':
@@ -167,10 +207,12 @@ export class Player {
 
          case '📜':
             this.lightRange += Math.floor(Math.random() * 5 * (lucky ? 2 : 1));
+            this.curses = this.curses.filter(c => c !== '🌙️');
             if (this.lightRange > 5) {
                this.lightRange = 5;
             }
             break;
+        this.showMessages(false);
       }
    }
 
@@ -206,6 +248,11 @@ export class Player {
          this.world.game.createLevel();
          this.init();
          return true;
+      } else if (code === 88) {
+         this.enchantments = ['💍', '🍀', '🏹'];
+         this.curses = [];
+         this.powerDown(0);
+         return true;
       }
 
       if (!(code in keyCode)) {
@@ -229,15 +276,28 @@ export class Player {
          this.y += delta[1];
          this.justMoved = true;
          this.world.game.message('coordinates', `(${this.x}, ${this.y})`);
-         if (Math.random() > .9 && this.health < 100) {
-            this.health++;
-            this.world.game.message('HP', `HP: ${this.health}`);
+
+         // when player is healthy movement will gain HP, slowly over time
+         // if the player is poisoned they will lose HP
+         const poisoned = this.curses.includes('☠️');
+         if (poisoned && Math.random() > .9) {
+            this.health -= 1;
+         } else if (!poisoned && Math.random() > .9) {
+            this.health += 1;
          }
-         return true;
+         this.world.game.message('HP', `HP: ${this.health}`);
+
+         // return true to indicate movement was successful
+         // as long as the player is alive
+         this.alive = this.health > 0;
+         return this.alive || this.justMoved;
 
       } else if (this.world.isBoss(this.x + delta[0], this.y + delta[1])) {
          // check for movement into combat...
-         return this.combat(this.world.bossCell, this.x, this.y, delta);
+         return this.combat({
+            type: this.world.boss,
+            ...this.world.bossCell
+         }, this.x, this.y, delta);
 
       } else if (this.world.isChest(this.x + delta[0], this.y + delta[1])) {
          // open a chest ...
@@ -269,7 +329,10 @@ export class Player {
     */
    combat(boss, x, y, diff) {
       // start a combat -> fight
-      let combatResult = new Combat(this, boss).fight(this.world.game);
+      if (!this.fight) {
+         this.fight = new Combat(this, boss);
+      }
+      let combatResult = this.fight.fight(this.world.game);
 
       // deal with a fight being over...
       if (combatResult) {
@@ -328,7 +391,17 @@ export class Player {
          treasure = this.world.game.Objects.keys[0];
       }
 
-      this.world.dropItem(x, y, treasure);
+      // small chance for item fountain ...
+      if (Math.random() > .95) {
+         this.castAnything({
+            startX: x - 1,
+            startY: y - 1,
+            endX: x + 1,
+            endY: y + 1,
+         }, this.world.game.Objects.treasure, true);
+      } else {
+         this.world.dropItem(x, y, treasure);
+      }
       return true;
    }
 
@@ -382,21 +455,39 @@ export class Player {
     * @param {number} y - The y-coordinate of the point.
     */
    castLight(x, y) {
+      // if you are cursed you cannot a lot of light
+      const inDarkness = this.curses.includes('🌙');
+
       const range = {
-         startX: x - this.lightRange,
-         endX: x + this.lightRange,
-         startY: y - this.lightRange,
-         endY: y + this.lightRange,
-         range: this.lightRange,
+         startX: x - (inDarkness ? 1 :this.lightRange),
+         endX: x + (inDarkness ? 1 :this.lightRange),
+         startY: y - (inDarkness ? 1 :this.lightRange),
+         endY: y + (inDarkness ? 1 :this.lightRange),
       };
 
+      // cast the light (empty space)
+      this.castAnything(range, [' '], false);
+   }
+
+   /**
+    * Iterates over a given range and casts random elements from the provided things array
+    * onto the world map, if the element at that position is a dot and has not been revealed yet.
+    *
+    * @param {Object} range - The range object containing startX, startY, endX, and endY values.
+    * @param {Array} things - The array of elements to cast onto the world map.
+    * @param {boolean} drop - Whether to drop the cast element.
+    */
+   castAnything(range, things, drop) {
       for (let checkX = range.startX; checkX <= range.endX; checkX++) {
          for (let checkY = range.startY; checkY <= range.endY; checkY++) {
             let row = this.world.map[checkX];
             let element = row ? row[checkY] : '';
             if (element === '.' && !this.world.reveal(checkX, checkY)) {
-               element = ' ';
+               element = things[Math.floor(Math.random() * things.length)];
                this.display.draw(checkX, checkY, element, this.world.game.Colors[element]);
+               if (drop) {
+                  this.world.dropItem(checkX, checkY, element);
+               }
             }
          }
       }

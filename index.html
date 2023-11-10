@@ -3,6 +3,21 @@
    <head>
       <title>Rogue</title>
       <script src="src/game.js"></script>
+      <script>
+         function sendKey(keyCode, type, modifiers) {
+            const evtName = (typeof(type) === 'string') ? 'key' + type : 'keydown';
+            const modifier = (typeof(modifiers) === 'object') ? modifier : {};
+
+            const event = document.createEvent('HTMLEvents');
+            event.initEvent(evtName, true, false);
+            event.keyCode = keyCode;
+
+            for (let i in modifiers) {
+               event[i] = modifiers[i];
+            }
+            document.dispatchEvent(event);
+         }
+      </script>
    </head>
    <body>
       <table>
@@ -18,6 +33,26 @@
                <div class="center" id="header">Rogue</div>
                <div class="center" id="gameOver"></div>
                <div class="center main" id="canvas"></div>
+               <table class="center">
+                  <tr>
+                     <td>&nbsp;</td>
+                     <td>
+                        <button id="up" onclick="sendKey(38)"> Up </button>
+                     </td>
+                     <td>&nbsp;</td>
+                  </tr>
+                  <tr>
+                     <td>
+                        <button id="left" onclick="sendKey(37)">Left</button>
+                     </td>
+                     <td>
+                        <button id="down" onclick="sendKey(40)">Down</button>
+                     </td>
+                     <td>
+                        <button id="right" onclick="sendKey(39)">Right</button>
+                     </td>
+                  </tr>
+               </table>
             </td>
             <td class="side-panel">
                <div id="lockStatus"></div>
@@ -25,6 +60,7 @@
                <div id="heroCombat"></div>
                <div id="monsterCombat"></div>
                <div id="enchantments"></div>
+               <div id="curses"></div>
             </td>
          </tr>
       </table>

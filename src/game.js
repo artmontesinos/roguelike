@@ -9,12 +9,13 @@ import { Player } from './player';
  * A class representing the overall game being played
  */
 export class Game {
-   map = [];
-   winning = false;
+   maxLevel = 10;
+   over = false;
    world = new GameWorld();
    player = new Player();
    display;
    canvas;
+   startTime;
 
    /** Options for the display screen: dimensions, etc.  */
    DisplayOptions = {
@@ -37,11 +38,19 @@ export class Game {
 
    /** Characters that play in the game */
    Characters = {
-      hero:  '🧙🏼‍️',
-      dead:  '☠️',
-      allies: ['🧚🏻‍️'],
-      monsters: ['🐉', '🐍', '🧌', '🧞', '🦂', '💀', '🕷️', '🦇'],
+      hero:  '🧝',
+      dead:  '🪦',
+      curses: ['☠️', '😴'],
+      allies: ['🧚🏻‍️', '🐕'],
+      monsters: ['🐉', '🐍', '🧌', '🧞', '🦂', '💀', '🕷️', '🦇', '👹', '👻'],
    };
+
+   /** Effects enemies can cause */
+   Effects = {
+      '☠️': ['🐍', '🦂', '🕷️'],
+      '😴': ['🧌', '👹', '🧞'],
+      '🌙': ['🦇', '👻', '💀']
+   }
 
    /** Objects used in the game */
    Objects = {
@@ -49,10 +58,11 @@ export class Game {
       door: '🚪',
       chest: '🗃',
       keys: ['🗝', '🔑'],
-      treasure: ['🗡️','🛡️', '💰', '🏹', '🧪', '📜', '💍', '🍀']
+      treasure: ['🗡️','🛡️', '💰', '🏹', '🥩', '🧪', '🧫', '📜', '💍', '🍀']
    };
 
    constructor() {
+      this.startTime = new Date();
    }
 
    /**
@@ -133,7 +143,7 @@ export class Game {
       this.display.clear();
       this.createLevel();
       this.player.init();
-      this.winning = true;
+      this.over = false;
       // start the engine, but do not await the player's actions
       this.engine();
       this.draw();
@@ -145,7 +155,7 @@ export class Game {
     */
    async engine() {
       // as long as the player is still winning the game, keep playing
-      while (this.winning) {
+      while (!this.over) {
          await this.player.act();
          this.draw();
       }
@@ -184,6 +194,8 @@ export class Game {
    }
 }
 
+const game = new Game();
+
 /**
  * Initializes the window.onload function and sets up event listeners for keydown events.
  */
@@ -191,13 +203,12 @@ window.onload = function() {
    // listen to keystrokes
    window.addEventListener('keydown', (e) => {
       // space and arrow keys
-      if ([8, 32, 37, 38, 39, 40, 65, 68, 83, 87].indexOf(e.keyCode) > -1) {
+      if ([8, 32, 37, 38, 39, 40, 65, 68, 83, 87, 88].indexOf(e.keyCode) > -1) {
          e.preventDefault();
       }
    }, false);
 
    // create new game and initialize it
-   const game = new Game();
    game.init().then(() => {
       this.canvas.focus();
    });

@@ -238,7 +238,6 @@ export class GameWorld {
     * @return {boolean} Returns true if the position is passable, false otherwise.
     */
    isPassable(x, y) {
-      console.log(`X: ${x} Y: ${y}`);
       const isBorder = this.map[x][y] === '+';
       const isWall = this.game.Objects.walls.includes(this.map[x][y]);
       const isLocked = this.game.Objects.door === this.map[x][y] && this.game.world.locked;
