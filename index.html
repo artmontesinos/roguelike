@@ -6,15 +6,11 @@
       <script>
          function sendKey(keyCode, type, modifiers) {
             const evtName = (typeof(type) === 'string') ? 'key' + type : 'keydown';
-            const modifier = (typeof(modifiers) === 'object') ? modifier : {};
+            const mods = (typeof(modifiers) === 'object') ? modifiers : {};
 
-            const event = document.createEvent('HTMLEvents');
-            event.initEvent(evtName, true, false);
+            let event = new Event(evtName, { bubbles: true, cancelable: false});
             event.keyCode = keyCode;
-
-            for (let i in modifiers) {
-               event[i] = modifiers[i];
-            }
+            event = { ...event, ...mods };
             document.dispatchEvent(event);
          }
       </script>

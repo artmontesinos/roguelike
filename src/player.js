@@ -12,7 +12,7 @@ export class Player {
    experience = 0;
    lightRange = 2;
    enchantments = [];
-   curses = ['☠️'];
+   curses = [];
    display;
    world;
    justMoved = false;
