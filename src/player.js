@@ -207,13 +207,13 @@ export class Player {
 
          case '📜':
             this.lightRange += Math.floor(Math.random() * 5 * (lucky ? 2 : 1));
-            this.curses = this.curses.filter(c => c !== '🌙️');
+            this.curses = this.curses.filter(c => c !== '🌙');
             if (this.lightRange > 5) {
                this.lightRange = 5;
             }
             break;
-        this.showMessages(false);
       }
+      this.showMessages(false);
    }
 
    /**
@@ -252,18 +252,23 @@ export class Player {
          this.enchantments = ['💍', '🍀', '🏹'];
          this.curses = [];
          this.powerDown(0);
+         this.showMessages(false);
          return true;
       }
 
+      // if the character is not handled immediately return false
       if (!(code in keyCode)) {
          return false;
       }
+
+      // otherwise determine the movement difference
       const diff = ROT.DIRS[8][keyCode[code]];
       return this.move(diff);
    }
 
    /**
-    * Moves the player character by the specified delta.
+    * Moves the player character by the specified delta. If the player encounters
+    * an item in the world, it will be interacted with. Ex: combat, open chest, pick up item, etc.
     *
     * @param {number[]} delta - The change in x and y coordinates.
     *
@@ -405,6 +410,17 @@ export class Player {
       return true;
    }
 
+   /**
+    * Picks up a key at the specified coordinates and performs
+    * necessary actions.
+    *
+    * @param {number} x - The x-coordinate of the key.
+    * @param {number} y - The y-coordinate of the key.
+    *
+    * @param {number[]} diff - The difference in coordinates to the key and the player's position.
+    *
+    * @return {boolean} Returns true if the key is successfully picked up.
+    */
    pickupKey(x, y, diff) {
       this.world.dropItem(x + diff[0], y + diff[1], '.');
       this.move(diff);
@@ -432,16 +448,16 @@ export class Player {
    }
 
    /**
-    * Draws the character on the screen.
-    *
-    * @param {number} x - The x-coordinate of the character.
-    * @param {number} y - The y-coordinate of the character.
+    * Draws the character on the screen and casts light around the player.
     */
    draw() {
       this.castLight(this.x, this.y);
       this.display.draw(this.x, this.y, this.world.game.Characters.hero, 'black');
    }
 
+   /**
+    * Kills the player character, cast 0 light and draw the 'dead' character.
+    */
    die() {
       this.lightRange = 0;
       this.castLight(this.x, this.y);
@@ -478,13 +494,21 @@ export class Player {
     * @param {boolean} drop - Whether to drop the cast element.
     */
    castAnything(range, things, drop) {
+      // iterate over the range (x)
       for (let checkX = range.startX; checkX <= range.endX; checkX++) {
+         // iterate over the range (y)
          for (let checkY = range.startY; checkY <= range.endY; checkY++) {
             let row = this.world.map[checkX];
             let element = row ? row[checkY] : '';
+
+            // if the element is a shadow(.) and not revealed yet, reveal it
             if (element === '.' && !this.world.reveal(checkX, checkY)) {
+
+               // get a random thing to cast onto the map
                element = things[Math.floor(Math.random() * things.length)];
                this.display.draw(checkX, checkY, element, this.world.game.Colors[element]);
+
+               // drop the cast element (if specified)
                if (drop) {
                   this.world.dropItem(checkX, checkY, element);
                }
