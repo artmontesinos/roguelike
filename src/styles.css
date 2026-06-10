@@ -1,0 +1,275 @@
+@import url('https://fonts.googleapis.com/css2?family=Cinzel:wght@500;700&family=IM+Fell+English:ital@0;1&display=swap');
+
+:root {
+   --bg: #0a0806;
+   --panel: #14100c;
+   --panel-edge: #3a2c15;
+   --gold: #c9a227;
+   --parchment: #d8c9a3;
+   --blood: #a4262c;
+}
+
+* {
+   box-sizing: border-box;
+}
+
+body {
+   margin: 0;
+   min-height: 100vh;
+   background: var(--bg) radial-gradient(1100px 500px at 50% -10%, #181208, transparent);
+   color: var(--parchment);
+   font-family: 'IM Fell English', Georgia, serif;
+   font-size: 16px;
+}
+
+header {
+   text-align: center;
+   padding: 0.7rem 0 0.5rem;
+}
+
+h1 {
+   font-family: Cinzel, serif;
+   font-size: 1.9rem;
+   letter-spacing: 0.4em;
+   margin: 0;
+   color: var(--gold);
+   text-shadow: 0 0 22px rgba(201, 162, 39, 0.3);
+}
+
+.subtitle {
+   margin: 0.15rem 0 0;
+   font-style: italic;
+   opacity: 0.55;
+}
+
+main {
+   display: flex;
+   gap: 10px;
+   justify-content: center;
+   align-items: flex-start;
+   padding: 0 10px;
+}
+
+.panel {
+   background: var(--panel);
+   border: 1px solid var(--panel-edge);
+   box-shadow: inset 0 0 28px rgba(0, 0, 0, 0.65);
+   padding: 10px 12px;
+}
+
+#stats-panel {
+   width: 220px;
+}
+
+#side-panel {
+   width: 270px;
+   max-height: 500px;
+   overflow-y: auto;
+}
+
+#stage {
+   position: relative;
+}
+
+canvas {
+   display: block;
+   border: 1px solid var(--panel-edge);
+   background: #050403;
+   max-width: 100%;
+}
+
+h3 {
+   font-family: Cinzel, serif;
+   font-size: 0.85rem;
+   letter-spacing: 0.15em;
+   text-transform: uppercase;
+   color: var(--gold);
+   border-bottom: 1px solid var(--panel-edge);
+   padding-bottom: 3px;
+   margin: 12px 0 6px;
+}
+
+h3:first-child {
+   margin-top: 0;
+}
+
+.bar {
+   height: 14px;
+   background: #200808;
+   border: 1px solid #000;
+   margin-bottom: 4px;
+}
+
+.bar-fill {
+   height: 100%;
+   background: linear-gradient(#c0392b, #6e1f17);
+   transition: width 0.15s;
+}
+
+.stat-row {
+   display: flex;
+   justify-content: space-between;
+   padding: 1px 0;
+}
+
+.depth-name {
+   font-style: italic;
+   margin-bottom: 6px;
+}
+
+.hint {
+   font-size: 0.8rem;
+   opacity: 0.45;
+   margin: 10px 0 0;
+}
+
+.muted {
+   opacity: 0.55;
+}
+
+.row {
+   display: flex;
+   justify-content: space-between;
+   gap: 8px;
+   padding: 3px 4px;
+   cursor: pointer;
+   border-radius: 2px;
+}
+
+.row:hover {
+   background: rgba(201, 162, 39, 0.1);
+}
+
+.row.material {
+   cursor: default;
+}
+
+.row.material:hover {
+   background: none;
+}
+
+.row.recipe.locked {
+   opacity: 0.55;
+   cursor: default;
+}
+
+.need-ok {
+   color: #7fa650;
+}
+
+.need-miss {
+   color: var(--blood);
+}
+
+button {
+   font-family: Cinzel, serif;
+   font-size: 0.85rem;
+   letter-spacing: 0.08em;
+   background: #1d160d;
+   color: var(--gold);
+   border: 1px solid var(--panel-edge);
+   padding: 7px 16px;
+   cursor: pointer;
+   width: 100%;
+   margin-top: 4px;
+}
+
+button:hover {
+   background: #2b2012;
+   box-shadow: 0 0 12px rgba(201, 162, 39, 0.2);
+}
+
+#overlay {
+   position: absolute;
+   inset: 0;
+   background: rgba(6, 4, 3, 0.92);
+   display: flex;
+   flex-direction: column;
+   align-items: center;
+   justify-content: center;
+   text-align: center;
+   padding: 24px;
+   border: 1px solid var(--panel-edge);
+}
+
+#overlay.hidden {
+   display: none;
+}
+
+#overlay h2 {
+   font-family: Cinzel, serif;
+   color: var(--gold);
+   letter-spacing: 0.25em;
+   margin: 0 0 10px;
+}
+
+#overlay p {
+   max-width: 420px;
+   line-height: 1.5;
+}
+
+#overlay-buttons {
+   display: flex;
+   gap: 10px;
+}
+
+#overlay-buttons button {
+   width: auto;
+   padding: 8px 26px;
+}
+
+#log {
+   max-width: 1060px;
+   width: calc(100% - 20px);
+   margin: 10px auto;
+   height: 116px;
+   overflow-y: auto;
+   font-size: 0.92rem;
+   line-height: 1.45;
+}
+
+#log .old {
+   opacity: 0.4;
+}
+
+/* touch controls: only shown on coarse pointers */
+#dpad {
+   display: none;
+}
+
+@media (pointer: coarse) {
+   #dpad {
+      display: grid;
+      grid-template-columns: repeat(3, 58px);
+      gap: 6px;
+      justify-content: center;
+      margin-top: 8px;
+   }
+
+   #dpad button {
+      width: 58px;
+      height: 46px;
+      margin: 0;
+   }
+}
+
+@media (max-width: 1100px) {
+   main {
+      flex-wrap: wrap;
+   }
+
+   #stage {
+      order: -1;
+      width: 100%;
+   }
+
+   canvas {
+      margin: 0 auto;
+   }
+
+   #stats-panel,
+   #side-panel {
+      width: calc(50% - 10px);
+      max-height: none;
+   }
+}
