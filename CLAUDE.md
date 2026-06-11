@@ -14,12 +14,20 @@ Rendering is a 2D canvas: programmatically shaded stone tiles (no image assets)
 with emoji glyphs for all entities, plus torchlight falloff, fog of war, and a
 vignette for the D&D-dark aesthetic.
 
+On victory (claiming the crown), a special-effects transition shatters the 2D
+view and reveals a 3D epilogue: a Three.js scene in the same dark-fantasy
+palette, hinting that Darkhollow was only the first layer of something far
+larger.
+
 ## Tech Stack
 
 - **Language**: vanilla JavaScript (ES modules, `"type": "module"`), no TypeScript
-- **Build/dev server**: Vite 5 (the only dependency; dev-only)
-- **No runtime dependencies, no framework** — DOM panels are rebuilt via
-  `innerHTML` templates; the dungeon view is a hand-rolled canvas renderer
+- **Build/dev server**: Vite 5
+- **Runtime dependency**: `three` — used **only** by `src/epilogue.js`, the
+  post-victory 3D scene, and lazy-loaded via dynamic `import()` so the main
+  game bundle stays small. Everything else has no runtime deps; DOM panels
+  are rebuilt via `innerHTML` templates and the dungeon view is a hand-rolled
+  2D canvas renderer
 - **Persistence**: `localStorage` (save game + run records)
 - **Tests**: headless smoke tests in Node (`npm test`) — no test framework
 
@@ -49,8 +57,12 @@ npm test         # node scripts/smoke.js — headless logic tests
 │   ├── fov.js           # Bresenham line-of-sight + visible-tile set
 │   ├── rng.js           # `Rand`: seedable mulberry32 PRNG (serializable state)
 │   ├── render.js        # Canvas renderer: tiles, lighting, glyphs, vignette
+│   │                     #   (also exports STAGE_WIDTH/HEIGHT for epilogue.js)
 │   ├── ui.js            # DOM panels: stats, inventory, crafting, log
 │   ├── save.js          # localStorage save/load/clear + run records
+│   ├── transition.js    # 2D canvas "reality fracture" shatter/flash effect
+│   ├── epilogue.js       # Post-victory 3D scene (Three.js, lazy-loaded);
+│   │                     #   procedural geometry/textures, no asset files
 │   └── styles.css       # Dark medieval theme (Cinzel / IM Fell English fonts)
 ├── scripts/
 │   └── smoke.js         # Headless tests: connectivity, combat, crafting, saves
@@ -62,7 +74,8 @@ npm test         # node scripts/smoke.js — headless logic tests
 The key boundary: **`game.js` (plus `dungeon.js`, `fov.js`, `rng.js`,
 `data.js`) is completely DOM-free** and runs in plain Node — this is what makes
 `npm test` possible. Keep it that way: anything touching `document`, `canvas`,
-or `localStorage` belongs in `main.js`, `ui.js`, `render.js`, or `save.js`.
+`localStorage`, or `three` belongs in `main.js`, `ui.js`, `render.js`,
+`save.js`, `transition.js`, or `epilogue.js`.
 
 ### Turn loop
 Input arrives in `main.js`, which calls a `Game` method (`tryMove`, `useItem`,
@@ -108,6 +121,24 @@ stairs in the room farthest from the start (or the dragon on depth
 - `darkhollow-save`: full serialized game, written after every action; cleared
   on death/victory (permadeath). Only `status === 'playing'` saves are resumed.
 - `darkhollow-records`: `{runs, wins, bestDepth}` across all runs.
+
+### Win reveal (src/transition.js + src/epilogue.js)
+On `game.status === 'won'`, `main.js#beginReveal()`:
+1. Runs `playFractureTransition()` on `#game-canvas` — shatters the current
+   frame into shards that fly outward, flashes, then leaves the canvas black.
+2. Hides `#game-canvas`, shows `#epilogue-canvas`, and dynamically imports
+   `epilogue.js` (`startEpilogue(canvas, STAGE_WIDTH, STAGE_HEIGHT)`), which
+   sets up a small Three.js scene: a stone platform, torch-lit broken
+   pillars, a low-poly adventurer (WASD/arrows to move, real-time not
+   turn-based), drifting embers, and a distant glowing "Eye" — all built from
+   primitives + a canvas-generated stone texture, no asset files.
+3. Lore lines fade in via `#epilogue-text`; once they finish, Enter calls
+   `endEpilogue()`, which disposes the Three.js renderer/scene, restores the
+   2D canvas, and shows the normal win overlay.
+
+`epilogue.js` owns its own `keydown`/`keyup`/`resize` listeners and must
+remove them (and dispose geometries/materials/renderer) in `dispose()` —
+`endEpilogue()` is the only caller.
 
 ## Testing & Verification
 

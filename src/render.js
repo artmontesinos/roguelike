@@ -4,6 +4,10 @@ const TILE_PX = 26;
 const VIEW_W = 29;
 const VIEW_H = 19;
 
+/** Pixel dimensions of the play view, shared with the 3D epilogue canvas. */
+export const STAGE_WIDTH = VIEW_W * TILE_PX;
+export const STAGE_HEIGHT = VIEW_H * TILE_PX;
+
 /**
  * Canvas renderer: dark stone tiles with a torchlight falloff around the
  * player, fog of war for explored-but-unseen areas, emoji glyphs for

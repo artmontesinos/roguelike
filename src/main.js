@@ -1,14 +1,25 @@
 import './styles.css';
 import { Game } from './game.js';
-import { createRenderer } from './render.js';
+import { createRenderer, STAGE_WIDTH, STAGE_HEIGHT } from './render.js';
 import { updateUI } from './ui.js';
 import { loadSave, saveGame, clearSave, loadRecords, recordRun } from './save.js';
+import { playFractureTransition } from './transition.js';
 
 let game = null;
 let finished = false;
+let epilogueCtl = null;
+let epilogueReady = false;
 
 const renderer = createRenderer(document.getElementById('game-canvas'));
 const overlay = document.getElementById('overlay');
+
+/** Lore revealed once the Pale Wyrm falls, paced one line at a time. */
+const EPILOGUE_LORE = [
+   "The crown's weight is wrong — too light, too cold, as though it holds no metal at all.",
+   'Where its jewels should sit, you find only depth: a blackness with no floor.',
+   'The walls of Darkhollow were never walls. They were a held breath.',
+   'Beyond the eighth depth, the world folds outward — and something ancient opens its eye.',
+];
 
 const DIRS = {
    ArrowUp: [0, -1],    w: [0, -1], W: [0, -1],
@@ -41,13 +52,70 @@ function afterAction() {
             [['New Run', startNewRun]]
          );
       } else {
-         showOverlay(
-            'The Crown Is Yours',
-            `You slew the Pale Wyrm and claimed the Crown of the Forsaken King at level ${game.player.level}, with ${game.player.gold} gold. A legend is born.`,
-            [['New Run', startNewRun]]
-         );
+         beginReveal();
       }
    }
+}
+
+/**
+ * Plays the dimensional-reveal sequence: the 2D view shatters, then the
+ * adventurer steps into a 3D epilogue while lore lines fade in. Pressing
+ * Enter once the lore finishes ends the epilogue and shows the win overlay.
+ */
+function beginReveal() {
+   const gameCanvas = document.getElementById('game-canvas');
+   const epilogueCanvas = document.getElementById('epilogue-canvas');
+   const loreBox = document.getElementById('epilogue-text');
+
+   playFractureTransition(gameCanvas, async () => {
+      gameCanvas.classList.add('hidden');
+      epilogueCanvas.classList.remove('hidden');
+      loreBox.classList.remove('hidden');
+      loreBox.innerHTML = '';
+
+      const { startEpilogue } = await import('./epilogue.js');
+      epilogueCtl = startEpilogue(epilogueCanvas, STAGE_WIDTH, STAGE_HEIGHT);
+
+      let i = 0;
+      const showNextLine = () => {
+         if (i < EPILOGUE_LORE.length) {
+            const p = document.createElement('p');
+            p.className = 'lore-line';
+            p.textContent = EPILOGUE_LORE[i];
+            loreBox.appendChild(p);
+            requestAnimationFrame(() => p.classList.add('show'));
+            i++;
+            setTimeout(showNextLine, 3400);
+         } else {
+            const prompt = document.createElement('p');
+            prompt.className = 'lore-line lore-prompt';
+            prompt.textContent = 'Press Enter to awaken in the world beyond...';
+            loreBox.appendChild(prompt);
+            requestAnimationFrame(() => prompt.classList.add('show'));
+            epilogueReady = true;
+         }
+      };
+      setTimeout(showNextLine, 1200);
+   });
+}
+
+/** Tears down the 3D scene, restores the dungeon canvas, and shows the win overlay. */
+function endEpilogue() {
+   epilogueReady = false;
+   if (epilogueCtl) {
+      epilogueCtl.dispose();
+      epilogueCtl = null;
+   }
+   document.getElementById('epilogue-canvas').classList.add('hidden');
+   document.getElementById('epilogue-text').classList.add('hidden');
+   document.getElementById('game-canvas').classList.remove('hidden');
+
+   showOverlay(
+      'The Crown Is Yours',
+      `You slew the Pale Wyrm and claimed the Crown of the Forsaken King at level ${game.player.level}, with ${game.player.gold} gold. ` +
+      'But the crown was never the prize — only a key. Somewhere beyond the eighth depth, a far older dark has noticed you. A legend is born... and a greater one begins.',
+      [['New Run', startNewRun]]
+   );
 }
 
 function startNewRun() {
@@ -93,6 +161,12 @@ window.addEventListener('keydown', (e) => {
    if (['ArrowUp', 'ArrowDown', 'ArrowLeft', 'ArrowRight', ' '].includes(e.key)) {
       e.preventDefault();
    }
+
+   if (epilogueReady && e.key === 'Enter') {
+      endEpilogue();
+      return;
+   }
+
    if (!game || game.status !== 'playing' || overlayOpen()) return;
 
    const dir = DIRS[e.key];

@@ -196,6 +196,42 @@ button:hover {
    display: none;
 }
 
+.hidden {
+   display: none !important;
+}
+
+#epilogue-text {
+   position: absolute;
+   left: 0;
+   right: 0;
+   bottom: 14px;
+   text-align: center;
+   pointer-events: none;
+   padding: 0 24px;
+}
+
+.lore-line {
+   font-style: italic;
+   color: var(--parchment);
+   text-shadow: 0 2px 6px rgba(0, 0, 0, 0.9);
+   opacity: 0;
+   transform: translateY(8px);
+   transition: opacity 1.2s ease, transform 1.2s ease;
+   margin: 4px 0;
+}
+
+.lore-line.show {
+   opacity: 1;
+   transform: translateY(0);
+}
+
+.lore-prompt {
+   color: var(--gold);
+   font-family: Cinzel, serif;
+   letter-spacing: 0.1em;
+   margin-top: 10px;
+}
+
 #overlay h2 {
    font-family: Cinzel, serif;
    color: var(--gold);

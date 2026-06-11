@@ -14,6 +14,7 @@ and claim the Crown of the Forsaken King.
 - Crafting system (potions, weapons, armor) from gathered materials
 - Permadeath, with run history tracked across games
 - Saves automatically to `localStorage` after every turn — close the tab and continue later
+- Claiming the crown shatters reality itself — a 3D epilogue (Three.js, lazy-loaded) reveals there's more beyond Darkhollow
 
 ## Play
 
@@ -33,6 +34,10 @@ npm test        # headless smoke tests of the game logic
 | Enter / Space / `>` on the stairs 🪜 | Descend |
 | Click inventory items | Use / equip |
 | Click recipes | Craft |
+
+After defeating the Pale Wyrm, the 3D epilogue uses **arrow keys / WASD** to
+walk around in real time (turn left/right, walk forward/back), and **Enter**
+to wake from the vision once the lore finishes.
 
 ## License
 
