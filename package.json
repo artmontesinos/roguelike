@@ -1,20 +1,19 @@
 {
-  "name": "rogue",
-  "version": "1.0.0",
-  "description": "first-ascii-roguelike =====================",
-   "main": "index.html",
+   "name": "darkhollow-depths",
+   "version": "2.0.0",
+   "description": "A dark-fantasy top-down roguelike dungeon crawler for the browser",
+   "type": "module",
    "scripts": {
-      "start": "parcel index.html --open",
-      "build": "parcel build index.html"
-   },
-   "dependencies": {
-      "rot-js": "2.1.4"
+      "dev": "vite",
+      "start": "vite",
+      "build": "vite build",
+      "preview": "vite preview",
+      "test": "node scripts/smoke.js"
    },
    "devDependencies": {
-      "@babel/core": "7.2.0",
-      "parcel-bundler": "^1.6.1"
+      "vite": "^5.4.8"
    },
-   "keywords": [],
+   "keywords": ["roguelike", "dungeon-crawler", "game"],
    "author": "",
-   "license": "ISC"
+   "license": "GPL-3.0"
 }

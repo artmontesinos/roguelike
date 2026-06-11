@@ -1,64 +1,49 @@
 <!DOCTYPE html>
-<html lang="fr">
+<html lang="en">
    <head>
-      <title>Rogue</title>
-      <script src="src/game.js"></script>
-      <script>
-         function sendKey(keyCode, type, modifiers) {
-            const evtName = (typeof(type) === 'string') ? 'key' + type : 'keydown';
-            const mods = (typeof(modifiers) === 'object') ? modifiers : {};
-
-            let event = new Event(evtName, { bubbles: true, cancelable: false});
-            event.keyCode = keyCode;
-            event = { ...event, ...mods };
-            document.dispatchEvent(event);
-         }
-      </script>
+      <meta charset="UTF-8" />
+      <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+      <title>Darkhollow Depths</title>
    </head>
    <body>
-      <table>
-         <tr>
-            <td class="side-panel">
-               <div class="left" id="HP"></div>
-               <div class="left" id="AC"></div>
-               <div class="left"id="Attack"></div>
-               <div class="left" id="Experience"></div>
-               <div class="left" id="Gold"></div>
-            </td>
-            <td class="main-panel">
-               <div class="center" id="header">Rogue</div>
-               <div class="center" id="gameOver"></div>
-               <div class="center main" id="canvas"></div>
-               <table class="center" style="display: none;">
-                  <tr>
-                     <td>&nbsp;</td>
-                     <td>
-                        <button id="up" onclick="sendKey(38)"> Up </button>
-                     </td>
-                     <td>&nbsp;</td>
-                  </tr>
-                  <tr>
-                     <td>
-                        <button id="left" onclick="sendKey(37)">Left</button>
-                     </td>
-                     <td>
-                        <button id="down" onclick="sendKey(40)">Down</button>
-                     </td>
-                     <td>
-                        <button id="right" onclick="sendKey(39)">Right</button>
-                     </td>
-                  </tr>
-               </table>
-            </td>
-            <td class="side-panel">
-               <div id="lockStatus"></div>
-               <div id="coordinates"></div>
-               <div id="heroCombat"></div>
-               <div id="monsterCombat"></div>
-               <div id="enchantments"></div>
-               <div id="curses"></div>
-            </td>
-         </tr>
-      </table>
+      <header>
+         <h1>DARKHOLLOW DEPTHS</h1>
+         <p class="subtitle">a roguelike of the forsaken crypts</p>
+      </header>
+
+      <main>
+         <aside class="panel" id="stats-panel"></aside>
+
+         <section id="stage">
+            <canvas id="game-canvas"></canvas>
+            <div id="overlay" class="hidden">
+               <h2 id="overlay-title"></h2>
+               <p id="overlay-body"></p>
+               <div id="overlay-buttons"></div>
+            </div>
+            <div id="dpad">
+               <span></span>
+               <button data-dir="0,-1">▲</button>
+               <span></span>
+               <button data-dir="-1,0">◀</button>
+               <button data-act="descend">▼▼</button>
+               <button data-dir="1,0">▶</button>
+               <span></span>
+               <button data-dir="0,1">▼</button>
+               <span></span>
+            </div>
+         </section>
+
+         <aside class="panel" id="side-panel">
+            <h3>Inventory</h3>
+            <div id="inventory"></div>
+            <h3>Crafting</h3>
+            <div id="crafting"></div>
+         </aside>
+      </main>
+
+      <footer class="panel" id="log"></footer>
+
+      <script type="module" src="/src/main.js"></script>
    </body>
 </html>
