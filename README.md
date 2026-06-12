@@ -38,8 +38,13 @@ npm test        # headless smoke tests of the game logic
 After defeating the Pale Wyrm, the 3D epilogue puts you in the boots of a
 caped thief exploring a torchlit crypt: **arrow keys / WASD** (or the touch
 d-pad) move in eight directions in real time, the dark revealing itself as
-your torch approaches. **Enter** (or the d-pad's center ⏎ on touch) wakes
-you from the vision once the lore finishes.
+your torch approaches. A corner minimap charts only what the torch has
+revealed (**M** toggles it). **Enter** (or the d-pad's center ⏎ on touch)
+wakes you from the vision once the lore finishes.
+
+Anywhere in the game, **F** (or the ⛶ button) toggles fullscreen, **I**
+opens the inventory overlay, and **C** opens the character sheet
+(Cmd/Ctrl+I and Cmd/Ctrl+C work too).
 
 ## License
 

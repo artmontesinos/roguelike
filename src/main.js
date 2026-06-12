@@ -80,6 +80,7 @@ async function enterEpilogue() {
 
    const { startEpilogue } = await import('./epilogue.js');
    epilogueCtl = startEpilogue(epilogueCanvas, STAGE_WIDTH, STAGE_HEIGHT);
+   document.getElementById('minimap').classList.remove('hidden');
 }
 
 /**
@@ -134,6 +135,7 @@ function endEpilogue() {
    }
    document.getElementById('epilogue-canvas').classList.add('hidden');
    document.getElementById('epilogue-text').classList.add('hidden');
+   document.getElementById('minimap').classList.add('hidden');
    document.getElementById('game-canvas').classList.remove('hidden');
 
    const wakeBtn = document.querySelector('#dpad [data-act="descend"]');
@@ -196,6 +198,10 @@ window.addEventListener('keydown', (e) => {
    if (key === 'i' || key === 'c') {
       e.preventDefault();
       toggleHud(key === 'i' ? 'inventory-hud' : 'character-hud');
+      return;
+   }
+   if (key === 'm' && epilogueCtl) {
+      toggleHud('minimap');
       return;
    }
 

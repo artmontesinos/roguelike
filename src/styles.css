@@ -217,6 +217,17 @@ button:hover {
 
 #inventory-hud {
    left: 10px;
+   top: 132px;
+}
+
+/* fog-of-war minimap over the 3D epilogue (M to toggle) */
+#minimap {
+   position: absolute;
+   top: 10px;
+   left: 10px;
+   z-index: 5;
+   image-rendering: pixelated;
+   opacity: 0.92;
 }
 
 .hud-right {

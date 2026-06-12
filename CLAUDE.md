@@ -137,7 +137,9 @@ On `game.status === 'won'`, `main.js#beginReveal()`:
    turn-based). A Diablo-style fog of war fades crypt geometry in permanently
    as the torch nears (`makeRevealable`/`updateReveal`); braziers, bones,
    drifting embers, and a glowing "Eye" loom past a rubble wall — all built
-   from primitives + a canvas-generated stone texture, no asset files.
+   from primitives + a canvas-generated stone texture, no asset files. The
+   `#minimap` canvas (M to toggle) charts only torch-revealed tiles, plus
+   the hero's position/facing and the Eye once the rubble vantage is found.
 3. Lore lines fade in via `#epilogue-text`; once they finish, Enter calls
    `endEpilogue()`, which disposes the Three.js renderer/scene, restores the
    2D canvas, and shows the normal win overlay.

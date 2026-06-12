@@ -46,6 +46,17 @@ export function startEpilogue(canvas, width, height) {
    const pending = [];
    const braziers = buildCrypt(scene, pending);
 
+   // tiles the torch has touched, mirrored onto the corner minimap
+   const revealedTiles = new Set();
+   const minimap = setupMinimap();
+   let eyeKnown = false;
+   const rubbleKeys = [];
+   for (let row = 0; row < CRYPT_ROWS; row++) {
+      for (let col = 0; col < CRYPT_COLS; col++) {
+         if (CRYPT_MAP[row][col] === '=') rubbleKeys.push(col + ',' + row);
+      }
+   }
+
    const hero = buildHero();
    scene.add(hero.group);
 
@@ -121,7 +132,9 @@ export function startEpilogue(canvas, width, height) {
       hero.group.rotation.y = hero3.angle;
       hero.animate(t, dt, speedFactor);
 
-      updateReveal(pending, hero3.x, hero3.z, dt);
+      updateReveal(pending, hero3.x, hero3.z, dt, revealedTiles);
+      if (!eyeKnown) eyeKnown = rubbleKeys.some((key) => revealedTiles.has(key));
+      if (minimap) drawMinimap(minimap, hero3, revealedTiles, eyeKnown);
 
       camera.position.lerp(
          new THREE.Vector3(hero3.x + camOffset.x, camOffset.y, hero3.z + camOffset.z),
@@ -171,9 +184,10 @@ function collides(x, z) {
 
 /**
  * Registers an object for the fog-of-war reveal: all its materials are
- * cloned, made transparent, and start at opacity 0.
+ * cloned, made transparent, and start at opacity 0. `key` is the object's
+ * "col,row" map tile, reported to the minimap once revealing starts.
  */
-function makeRevealable(obj, x, z, pending) {
+function makeRevealable(obj, x, z, pending, key) {
    const mats = [];
    obj.traverse((o) => {
       if (o.material) {
@@ -183,17 +197,18 @@ function makeRevealable(obj, x, z, pending) {
          mats.push(o.material);
       }
    });
-   const entry = { x, z, amount: 0, mats };
+   const entry = { x, z, key, amount: 0, mats };
    pending.push(entry);
    return entry;
 }
 
 /** Fades in any pending geometry within torch range; revealed tiles stay lit. */
-function updateReveal(pending, px, pz, dt) {
+function updateReveal(pending, px, pz, dt, revealedTiles) {
    for (let i = pending.length - 1; i >= 0; i--) {
       const entry = pending[i];
       if (entry.amount === 0 && Math.hypot(entry.x - px, entry.z - pz) > REVEAL_RADIUS) continue;
       entry.amount = Math.min(1, entry.amount + REVEAL_SPEED * dt);
+      revealedTiles.add(entry.key);
       for (const mat of entry.mats) mat.opacity = entry.amount;
       if (entry.amount >= 1) {
          for (const mat of entry.mats) {
@@ -203,6 +218,64 @@ function updateReveal(pending, px, pz, dt) {
          pending.splice(i, 1);
       }
    }
+}
+
+/** Sizes the corner minimap canvas to the crypt map, if it's in the page. */
+function setupMinimap() {
+   const canvas = document.getElementById('minimap');
+   if (!canvas) return null;
+   const scale = 7;
+   canvas.width = CRYPT_COLS * scale;
+   canvas.height = CRYPT_ROWS * scale;
+   return { canvas, ctx: canvas.getContext('2d'), scale };
+}
+
+/**
+ * Redraws the minimap: only torch-revealed tiles appear, with brazier dots,
+ * a gold arrow for the hero's position/facing, and — once the rubble vantage
+ * has been found — a red glow at the north edge marking the Eye.
+ */
+function drawMinimap(minimap, hero3, revealedTiles, eyeKnown) {
+   const { canvas, ctx, scale } = minimap;
+   ctx.fillStyle = '#050408';
+   ctx.fillRect(0, 0, canvas.width, canvas.height);
+
+   for (let row = 0; row < CRYPT_ROWS; row++) {
+      for (let col = 0; col < CRYPT_COLS; col++) {
+         if (!revealedTiles.has(col + ',' + row)) continue;
+         const tile = CRYPT_MAP[row][col];
+         ctx.fillStyle = tile === '#' ? '#6b5a3e' : tile === '=' ? '#8a6a3a' : '#352e24';
+         ctx.fillRect(col * scale, row * scale, scale, scale);
+         if (tile === 't') {
+            ctx.fillStyle = '#ffaa33';
+            ctx.beginPath();
+            ctx.arc((col + 0.5) * scale, (row + 0.5) * scale, scale * 0.28, 0, Math.PI * 2);
+            ctx.fill();
+         }
+      }
+   }
+
+   if (eyeKnown) {
+      ctx.fillStyle = 'rgba(255, 50, 0, 0.9)';
+      ctx.beginPath();
+      ctx.arc(canvas.width / 2, scale * 0.7, scale * 0.55, 0, Math.PI * 2);
+      ctx.fill();
+   }
+
+   // hero arrow: map north is up, so a hero angle of PI (facing -z) points up
+   const hx = (hero3.x / CRYPT_TILE + CRYPT_COLS / 2) * scale;
+   const hy = (hero3.z / CRYPT_TILE + CRYPT_ROWS / 2) * scale;
+   ctx.save();
+   ctx.translate(hx, hy);
+   ctx.rotate(Math.PI - hero3.angle);
+   ctx.fillStyle = '#c9a227';
+   ctx.beginPath();
+   ctx.moveTo(0, -scale * 0.65);
+   ctx.lineTo(scale * 0.45, scale * 0.45);
+   ctx.lineTo(-scale * 0.45, scale * 0.45);
+   ctx.closePath();
+   ctx.fill();
+   ctx.restore();
 }
 
 /**
@@ -231,13 +304,14 @@ function buildCrypt(scene, pending) {
          const tile = CRYPT_MAP[row][col];
          if (tile === ' ') continue;
          const { x, z } = cryptTileCenter(col, row);
+         const key = col + ',' + row;
 
          if (tile === '#') {
             const wall = new THREE.Mesh(wallGeo, wallMat);
             const h = WALL_HEIGHT * (0.92 + Math.random() * 0.16);
             wall.scale.y = h / WALL_HEIGHT;
             wall.position.set(x, h / 2, z);
-            varyTint(makeRevealable(wall, x, z, pending));
+            varyTint(makeRevealable(wall, x, z, pending, key));
             scene.add(wall);
             continue;
          }
@@ -245,30 +319,30 @@ function buildCrypt(scene, pending) {
          // every walkable (and rubble) tile gets a floor slab
          const floor = new THREE.Mesh(floorGeo, floorMat);
          floor.position.set(x, -0.1, z);
-         varyTint(makeRevealable(floor, x, z, pending));
+         varyTint(makeRevealable(floor, x, z, pending, key));
          scene.add(floor);
 
          if (tile === '=') {
             const rubble = new THREE.Mesh(rubbleGeo, rubbleMat);
             rubble.position.set(x, 0.45, z);
             rubble.rotation.y = (Math.random() - 0.5) * 0.2;
-            varyTint(makeRevealable(rubble, x, z, pending));
+            varyTint(makeRevealable(rubble, x, z, pending, key));
             scene.add(rubble);
          } else if (tile === 't') {
             const brazier = buildBrazier();
             brazier.group.position.set(x, 0, z);
-            const reveal = makeRevealable(brazier.group, x, z, pending);
+            const reveal = makeRevealable(brazier.group, x, z, pending, key);
             braziers.push({ light: brazier.light, base: 1.6, phase: row * 7 + col, reveal });
             scene.add(brazier.group);
          } else if (tile === 'b') {
             const bones = buildBones(boneMat);
             bones.position.set(x, 0, z);
-            makeRevealable(bones, x, z, pending);
+            makeRevealable(bones, x, z, pending, key);
             scene.add(bones);
          } else if (tile === 'r') {
             const pile = buildRubblePile(rubbleMat);
             pile.position.set(x, 0, z);
-            varyTint(makeRevealable(pile, x, z, pending));
+            varyTint(makeRevealable(pile, x, z, pending, key));
             scene.add(pile);
          }
       }
