@@ -28,6 +28,16 @@ const DIRS = {
    ArrowRight: [1, 0],  d: [1, 0],  D: [1, 0],
 };
 
+/** Maps the d-pad's `data-dir` values to the epilogue's keyboard key names. */
+const EPILOGUE_KEY_MAP = {
+   '0,-1': 'arrowup',
+   '0,1': 'arrowdown',
+   '-1,0': 'arrowleft',
+   '1,0': 'arrowright',
+};
+
+const TOUCH = window.matchMedia('(pointer: coarse)').matches;
+
 function refresh() {
    if (!game) return;
    renderer.draw(game);
@@ -76,6 +86,9 @@ function beginReveal() {
       const { startEpilogue } = await import('./epilogue.js');
       epilogueCtl = startEpilogue(epilogueCanvas, STAGE_WIDTH, STAGE_HEIGHT);
 
+      const wakeBtn = document.querySelector('#dpad [data-act="descend"]');
+      if (wakeBtn) wakeBtn.textContent = '⏎';
+
       let i = 0;
       const showNextLine = () => {
          if (i < EPILOGUE_LORE.length) {
@@ -89,7 +102,9 @@ function beginReveal() {
          } else {
             const prompt = document.createElement('p');
             prompt.className = 'lore-line lore-prompt';
-            prompt.textContent = 'Press Enter to awaken in the world beyond...';
+            prompt.textContent = TOUCH
+               ? 'Tap ⏎ to awaken in the world beyond...'
+               : 'Press Enter to awaken in the world beyond...';
             loreBox.appendChild(prompt);
             requestAnimationFrame(() => prompt.classList.add('show'));
             epilogueReady = true;
@@ -109,6 +124,9 @@ function endEpilogue() {
    document.getElementById('epilogue-canvas').classList.add('hidden');
    document.getElementById('epilogue-text').classList.add('hidden');
    document.getElementById('game-canvas').classList.remove('hidden');
+
+   const wakeBtn = document.querySelector('#dpad [data-act="descend"]');
+   if (wakeBtn) wakeBtn.textContent = '▼▼';
 
    showOverlay(
       'The Crown Is Yours',
@@ -190,10 +208,18 @@ document.getElementById('stats-panel').addEventListener('click', (e) => {
    if (e.target.id === 'btn-descend' && game.descend()) afterAction();
 });
 
-document.getElementById('dpad').addEventListener('click', (e) => {
-   if (!game || game.status !== 'playing' || overlayOpen()) return;
+const dpad = document.getElementById('dpad');
+
+dpad.addEventListener('click', (e) => {
    const btn = e.target.closest('button');
    if (!btn) return;
+
+   if (epilogueCtl) {
+      if (btn.dataset.act === 'descend' && epilogueReady) endEpilogue();
+      return;
+   }
+
+   if (!game || game.status !== 'playing' || overlayOpen()) return;
    if (btn.dataset.dir) {
       const [dx, dy] = btn.dataset.dir.split(',').map(Number);
       if (game.tryMove(dx, dy)) afterAction();
@@ -201,6 +227,28 @@ document.getElementById('dpad').addEventListener('click', (e) => {
       if (game.descend()) afterAction();
    }
 });
+
+// Holding a d-pad direction button during the 3D epilogue steers the
+// adventurer in real time, mirroring the held-key controls on desktop.
+function epilogueDirKey(e) {
+   const btn = e.target.closest('button');
+   return btn && EPILOGUE_KEY_MAP[btn.dataset.dir];
+}
+
+dpad.addEventListener('pointerdown', (e) => {
+   const key = epilogueCtl && epilogueDirKey(e);
+   if (key) {
+      e.preventDefault();
+      epilogueCtl.keys.add(key);
+   }
+});
+
+for (const evt of ['pointerup', 'pointercancel', 'pointerleave']) {
+   dpad.addEventListener(evt, (e) => {
+      const key = epilogueCtl && epilogueDirKey(e);
+      if (key) epilogueCtl.keys.delete(key);
+   });
+}
 
 // --- boot: title screen, with Continue when a save exists ---
 

@@ -15,7 +15,9 @@ const TURN_SPEED = 2.2; // radians / second
  * @param {number} width - render width in CSS pixels
  * @param {number} height - render height in CSS pixels
  *
- * @return {{dispose: () => void}} controller to tear down the scene
+ * @return {{keys: Set<string>, dispose: () => void}} controller to tear down
+ *   the scene; `keys` holds the same lowercased key names as `keydown`
+ *   (e.g. `'arrowup'`) and can be mutated by touch controls to drive movement
  */
 export function startEpilogue(canvas, width, height) {
    const renderer = new THREE.WebGLRenderer({ canvas, antialias: true });
@@ -119,6 +121,7 @@ export function startEpilogue(canvas, width, height) {
    }
 
    return {
+      keys,
       dispose() {
          cancelAnimationFrame(raf);
          window.removeEventListener('keydown', onKeyDown);
