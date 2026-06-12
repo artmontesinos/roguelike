@@ -12,6 +12,7 @@ export function updateUI(game) {
    renderInventory(game);
    renderCrafting(game);
    renderLog(game);
+   renderHud(game);
 }
 
 function renderStats(game) {
@@ -44,6 +45,15 @@ function equipName(id) {
 }
 
 function renderInventory(game) {
+   document.getElementById('inventory').innerHTML = inventoryRows(game, true);
+}
+
+/**
+ * Renders the player's inventory as a list of rows. When `interactive` is
+ * true, rows carry `data-item` + an action label for the side-panel's click
+ * handling; the read-only HUD overlay omits both.
+ */
+function inventoryRows(game, interactive) {
    const inv = game.player.inv;
    const ids = Object.keys(inv).sort(
       (a, b) =>
@@ -52,14 +62,16 @@ function renderInventory(game) {
    );
 
    if (ids.length === 0) {
-      document.getElementById('inventory').innerHTML = '<p class="muted">Your pack is empty.</p>';
-      return;
+      return '<p class="muted">Your pack is empty.</p>';
    }
 
-   document.getElementById('inventory').innerHTML = ids
+   return ids
       .map((id) => {
          const item = ITEMS[id];
          const qty = inv[id] > 1 ? ` ×${inv[id]}` : '';
+         if (!interactive) {
+            return `<div class="row material"><span>${item.glyph} ${item.name}${qty}</span></div>`;
+         }
          const action =
             item.kind === 'potion' || item.kind === 'food' ? 'Use' :
             item.kind === 'weapon' || item.kind === 'armor' ? 'Equip' : '';
@@ -91,6 +103,32 @@ function renderCrafting(game) {
          <span>${needs}</span>
       </div>`;
    }).join('');
+}
+
+/** Fills the toggleable inventory/character overlays shown over the 3D view. */
+function renderHud(game) {
+   const invHud = document.getElementById('inventory-hud-content');
+   const charHud = document.getElementById('character-hud-content');
+   if (invHud) invHud.innerHTML = inventoryRows(game, false);
+   if (charHud) charHud.innerHTML = characterSheet(game);
+}
+
+function characterSheet(game) {
+   const p = game.player;
+   const hpPct = Math.max(0, Math.round((p.hp / p.maxHp) * 100));
+   return `
+      <div class="bar"><div class="bar-fill" style="width:${hpPct}%"></div></div>
+      <div class="stat-row"><span>HP</span><span>${p.hp} / ${p.maxHp}</span></div>
+      <div class="stat-row"><span>Level ${p.level}</span><span class="muted">${p.xp} / ${game.xpToNext()} xp</span></div>
+      <div class="stat-row"><span>Attack</span><span>${game.playerAtk()}</span></div>
+      <div class="stat-row"><span>Defense</span><span>${game.playerDef()}</span></div>
+      <div class="stat-row"><span>Gold</span><span>💰 ${p.gold}</span></div>
+      <h3>Equipment</h3>
+      <div class="stat-row"><span class="muted">Weapon</span><span>${equipName(p.weapon)}</span></div>
+      <div class="stat-row"><span class="muted">Armor</span><span>${equipName(p.armor)}</span></div>
+      <h3>Depth ${game.depth}</h3>
+      <div class="depth-name">${DEPTH_NAMES[game.depth - 1]}</div>
+   `;
 }
 
 function renderLog(game) {

@@ -38,6 +38,11 @@ const EPILOGUE_KEY_MAP = {
 
 const TOUCH = window.matchMedia('(pointer: coarse)').matches;
 
+// TEMP: jump straight into the 3D crypt instead of the title screen + 2D
+// dungeon, while the epilogue scene is being iterated on. Flip to false (or
+// remove) to restore the normal title-screen -> dungeon -> epilogue flow.
+const DEV_3D_PREVIEW = true;
+
 function refresh() {
    if (!game) return;
    renderer.draw(game);
@@ -67,6 +72,16 @@ function afterAction() {
    }
 }
 
+/** Hides the 2D canvas, shows the epilogue canvas, and starts the 3D scene. */
+async function enterEpilogue() {
+   document.getElementById('game-canvas').classList.add('hidden');
+   const epilogueCanvas = document.getElementById('epilogue-canvas');
+   epilogueCanvas.classList.remove('hidden');
+
+   const { startEpilogue } = await import('./epilogue.js');
+   epilogueCtl = startEpilogue(epilogueCanvas, STAGE_WIDTH, STAGE_HEIGHT);
+}
+
 /**
  * Plays the dimensional-reveal sequence: the 2D view shatters, then the
  * adventurer steps into a 3D epilogue while lore lines fade in. Pressing
@@ -74,17 +89,13 @@ function afterAction() {
  */
 function beginReveal() {
    const gameCanvas = document.getElementById('game-canvas');
-   const epilogueCanvas = document.getElementById('epilogue-canvas');
    const loreBox = document.getElementById('epilogue-text');
 
    playFractureTransition(gameCanvas, async () => {
-      gameCanvas.classList.add('hidden');
-      epilogueCanvas.classList.remove('hidden');
       loreBox.classList.remove('hidden');
       loreBox.innerHTML = '';
 
-      const { startEpilogue } = await import('./epilogue.js');
-      epilogueCtl = startEpilogue(epilogueCanvas, STAGE_WIDTH, STAGE_HEIGHT);
+      await enterEpilogue();
 
       const wakeBtn = document.querySelector('#dpad [data-act="descend"]');
       if (wakeBtn) wakeBtn.textContent = '⏎';
@@ -176,6 +187,18 @@ function overlayOpen() {
 // --- input wiring ---
 
 window.addEventListener('keydown', (e) => {
+   const key = e.key.toLowerCase();
+
+   if (key === 'f') {
+      toggleFullscreen();
+      return;
+   }
+   if (key === 'i' || key === 'c') {
+      e.preventDefault();
+      toggleHud(key === 'i' ? 'inventory-hud' : 'character-hud');
+      return;
+   }
+
    if (['ArrowUp', 'ArrowDown', 'ArrowLeft', 'ArrowRight', ' '].includes(e.key)) {
       e.preventDefault();
    }
@@ -184,6 +207,8 @@ window.addEventListener('keydown', (e) => {
       endEpilogue();
       return;
    }
+
+   if (epilogueCtl) return; // the 3D epilogue owns movement input
 
    if (!game || game.status !== 'playing' || overlayOpen()) return;
 
@@ -194,6 +219,28 @@ window.addEventListener('keydown', (e) => {
       if (game.descend()) afterAction();
    }
 });
+
+// --- fullscreen + HUD overlay toggles ---
+
+const stage = document.getElementById('stage');
+const fullscreenBtn = document.getElementById('fullscreen-btn');
+
+function toggleFullscreen() {
+   if (document.fullscreenElement) {
+      document.exitFullscreen();
+   } else {
+      (stage.requestFullscreen || stage.webkitRequestFullscreen)?.call(stage);
+   }
+}
+
+fullscreenBtn.addEventListener('click', toggleFullscreen);
+document.addEventListener('fullscreenchange', () => {
+   fullscreenBtn.textContent = document.fullscreenElement ? '✕' : '⛶';
+});
+
+function toggleHud(id) {
+   document.getElementById(id).classList.toggle('hidden');
+}
 
 document.getElementById('side-panel').addEventListener('click', (e) => {
    if (!game || game.status !== 'playing' || overlayOpen()) return;
@@ -250,19 +297,29 @@ for (const evt of ['pointerup', 'pointercancel', 'pointerleave']) {
    });
 }
 
-// --- boot: title screen, with Continue when a save exists ---
+// --- boot ---
 
 const save = loadSave();
-const records = loadRecords();
-const recordLine = records.runs
-   ? ` Runs: ${records.runs} · Wins: ${records.wins} · Deepest: ${records.bestDepth}.`
-   : '';
 
-showOverlay(
-   'Darkhollow Depths',
-   'Eight depths below the ruined keep lies the hoard of the Pale Wyrm — and the Crown of the Forsaken King. ' +
-   'Fight, loot, craft, and descend. Death is permanent; the dark remembers.' + recordLine,
-   save
-      ? [['Continue', () => continueRun(save)], ['New Run', startNewRun]]
-      : [['New Run', startNewRun]]
-);
+if (DEV_3D_PREVIEW) {
+   // Skip the title screen: load (or start) a run for its stats/inventory
+   // data, then drop straight into the 3D crypt.
+   game = save ? Game.fromSave(save) : new Game(Math.floor(Math.random() * 2 ** 31));
+   if (!save) saveGame(game);
+   updateUI(game);
+   enterEpilogue();
+} else {
+   const records = loadRecords();
+   const recordLine = records.runs
+      ? ` Runs: ${records.runs} · Wins: ${records.wins} · Deepest: ${records.bestDepth}.`
+      : '';
+
+   showOverlay(
+      'Darkhollow Depths',
+      'Eight depths below the ruined keep lies the hoard of the Pale Wyrm — and the Crown of the Forsaken King. ' +
+      'Fight, loot, craft, and descend. Death is permanent; the dark remembers.' + recordLine,
+      save
+         ? [['Continue', () => continueRun(save)], ['New Run', startNewRun]]
+         : [['New Run', startNewRun]]
+   );
+}
