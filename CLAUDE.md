@@ -61,6 +61,8 @@ npm test         # node scripts/smoke.js — headless logic tests
 │   ├── ui.js            # DOM panels: stats, inventory, crafting, log
 │   ├── save.js          # localStorage save/load/clear + run records
 │   ├── transition.js    # 2D canvas "reality fracture" shatter/flash effect
+│   ├── crypt.js         # Tile map + helpers for the 3D epilogue crypt
+│   │                     #   (DOM-free; connectivity is smoke-tested)
 │   ├── epilogue.js       # Post-victory 3D scene (Three.js, lazy-loaded);
 │   │                     #   procedural geometry/textures, no asset files
 │   └── styles.css       # Dark medieval theme (Cinzel / IM Fell English fonts)
@@ -72,10 +74,10 @@ npm test         # node scripts/smoke.js — headless logic tests
 ## Architecture
 
 The key boundary: **`game.js` (plus `dungeon.js`, `fov.js`, `rng.js`,
-`data.js`) is completely DOM-free** and runs in plain Node — this is what makes
-`npm test` possible. Keep it that way: anything touching `document`, `canvas`,
-`localStorage`, or `three` belongs in `main.js`, `ui.js`, `render.js`,
-`save.js`, `transition.js`, or `epilogue.js`.
+`data.js`, and `crypt.js`) is completely DOM-free** and runs in plain Node —
+this is what makes `npm test` possible. Keep it that way: anything touching
+`document`, `canvas`, `localStorage`, or `three` belongs in `main.js`,
+`ui.js`, `render.js`, `save.js`, `transition.js`, or `epilogue.js`.
 
 ### Turn loop
 Input arrives in `main.js`, which calls a `Game` method (`tryMove`, `useItem`,
@@ -128,10 +130,14 @@ On `game.status === 'won'`, `main.js#beginReveal()`:
    frame into shards that fly outward, flashes, then leaves the canvas black.
 2. Hides `#game-canvas`, shows `#epilogue-canvas`, and dynamically imports
    `epilogue.js` (`startEpilogue(canvas, STAGE_WIDTH, STAGE_HEIGHT)`), which
-   sets up a small Three.js scene: a stone platform, torch-lit broken
-   pillars, a low-poly adventurer (WASD/arrows to move, real-time not
-   turn-based), drifting embers, and a distant glowing "Eye" — all built from
-   primitives + a canvas-generated stone texture, no asset files.
+   sets up a Three.js scene: a hooded thief (raised torch, dagger,
+   vertex-animated cape) explores a ruined crypt laid out by the tile map in
+   `src/crypt.js` — a DOM-free module whose connectivity is smoke-tested.
+   WASD/arrows or the touch d-pad move eight-way in real time (not
+   turn-based). A Diablo-style fog of war fades crypt geometry in permanently
+   as the torch nears (`makeRevealable`/`updateReveal`); braziers, bones,
+   drifting embers, and a glowing "Eye" loom past a rubble wall — all built
+   from primitives + a canvas-generated stone texture, no asset files.
 3. Lore lines fade in via `#epilogue-text`; once they finish, Enter calls
    `endEpilogue()`, which disposes the Three.js renderer/scene, restores the
    2D canvas, and shows the normal win overlay.
@@ -165,7 +171,7 @@ remove them (and dispose geometries/materials/renderer) in `dispose()` —
 ## Things to Watch Out For
 
 - Don't introduce DOM/localStorage references into `game.js`, `dungeon.js`,
-  `fov.js`, `rng.js`, or `data.js` — it will break `npm test`.
+  `fov.js`, `rng.js`, `data.js`, or `crypt.js` — it will break `npm test`.
 - The save format round-trip test (`serialize` → `fromSave` → `serialize`
   deep-equal) means new `Game` state fields must be added to **both**
   `serialize()` and `fromSave()`.

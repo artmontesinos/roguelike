@@ -1,15 +1,22 @@
 import * as THREE from 'three';
+import {
+   CRYPT_MAP, CRYPT_ROWS, CRYPT_COLS, CRYPT_TILE,
+   cryptTileCenter, cryptBlockedAt, cryptStart,
+} from './crypt.js';
 
-const PLATFORM_RADIUS = 14;
-const MOVE_SPEED = 4;   // units / second
-const TURN_SPEED = 2.2; // radians / second
+const WALL_HEIGHT = 2.6;
+const MOVE_SPEED = 4.2;     // units / second
+const HERO_RADIUS = 0.38;   // collision radius against walls
+const REVEAL_RADIUS = 7;    // torchlight distance at which the crypt fades in
+const REVEAL_SPEED = 2.4;   // reveal opacity per second
 
 /**
- * Starts the post-victory 3D epilogue: the adventurer steps onto a shattered
- * platform adrift in the dark beyond Darkhollow, where something vast and
- * ancient watches from the fog. Built entirely from procedural geometry and
- * materials (low-poly figures, generated stone textures, particle embers) —
- * same dark-fantasy palette as the 2D crawler, no external assets.
+ * Starts the post-victory 3D epilogue: a hooded thief — torch raised in one
+ * hand, dagger in the other, cape streaming behind — explores a ruined crypt
+ * beyond Darkhollow. Diablo-dark: the world is swallowed by fog and shadow,
+ * and walls, braziers, and bones fade into view only as the torch nears
+ * (a 3D fog of war). Beyond the broken north wall, something vast watches.
+ * Built entirely from procedural geometry and materials — no external assets.
  *
  * @param {HTMLCanvasElement} canvas
  * @param {number} width - render width in CSS pixels
@@ -23,32 +30,40 @@ export function startEpilogue(canvas, width, height) {
    const renderer = new THREE.WebGLRenderer({ canvas, antialias: true });
    renderer.setPixelRatio(Math.min(window.devicePixelRatio || 1, 2));
    renderer.setSize(width, height);
-   renderer.shadowMap.enabled = true;
-   renderer.shadowMap.type = THREE.PCFSoftShadowMap;
 
    const scene = new THREE.Scene();
-   scene.background = new THREE.Color(0x05050a);
-   scene.fog = new THREE.FogExp2(0x05050a, 0.022);
+   scene.background = new THREE.Color(0x030206);
+   scene.fog = new THREE.FogExp2(0x030206, 0.05);
 
    const camera = new THREE.PerspectiveCamera(50, width / height, 0.1, 200);
 
-   buildLighting(scene);
-   const torchLights = buildPillars(scene);
+   scene.add(new THREE.AmbientLight(0x16121f, 0.5));
+   const moon = new THREE.DirectionalLight(0x303a66, 0.15);
+   moon.position.set(-12, 18, -8);
+   scene.add(moon);
+
+   // Unrevealed crypt geometry starts invisible and fades in near the torch.
+   const pending = [];
+   const braziers = buildCrypt(scene, pending);
+
    const hero = buildHero();
    scene.add(hero.group);
+
    const eye = buildEye();
-   eye.group.position.set(0, 9, -PLATFORM_RADIUS * 1.8);
+   const northGap = cryptTileCenter(CRYPT_COLS / 2, 0);
+   eye.group.position.set(0, 6.5, northGap.z - 11);
    scene.add(eye.group);
+
    const embers = buildEmbers();
    scene.add(embers.points);
-   scene.add(buildGround());
 
-   // hero starts near the platform's edge, facing out toward the Eye
-   const hero3 = { x: 0, z: PLATFORM_RADIUS - 3, angle: 0 };
-   const camDist = 5;
-   const camHeight = 2.6;
-   camera.position.set(hero3.x, camHeight, hero3.z + camDist);
-   camera.lookAt(hero3.x, 1.2, hero3.z);
+   // hero wakes in the start chamber, facing north toward the Eye
+   const start = cryptStart();
+   const hero3 = { x: start.x, z: start.z, angle: Math.PI };
+   let speedFactor = 0;
+   const camOffset = new THREE.Vector3(0, 8.2, 6.4);
+   camera.position.set(hero3.x + camOffset.x, camOffset.y, hero3.z + camOffset.z);
+   camera.lookAt(hero3.x, 0.9, hero3.z);
 
    const keys = new Set();
    const onKeyDown = (e) => keys.add(e.key.toLowerCase());
@@ -75,43 +90,49 @@ export function startEpilogue(canvas, width, height) {
       last = now;
       const t = now / 1000;
 
-      if (keys.has('arrowleft') || keys.has('a')) hero3.angle += TURN_SPEED * dt;
-      if (keys.has('arrowright') || keys.has('d')) hero3.angle -= TURN_SPEED * dt;
+      // eight-way screen-relative movement: up walks north (deeper in)
+      let mx = 0;
+      let mz = 0;
+      if (keys.has('arrowup') || keys.has('w')) mz -= 1;
+      if (keys.has('arrowdown') || keys.has('s')) mz += 1;
+      if (keys.has('arrowleft') || keys.has('a')) mx -= 1;
+      if (keys.has('arrowright') || keys.has('d')) mx += 1;
+      const moving = mx !== 0 || mz !== 0;
+      speedFactor += ((moving ? 1 : 0) - speedFactor) * Math.min(1, dt * 8);
 
-      const fx = -Math.sin(hero3.angle);
-      const fz = -Math.cos(hero3.angle);
-      let moving = false;
-      if (keys.has('arrowup') || keys.has('w')) {
-         hero3.x += fx * MOVE_SPEED * dt;
-         hero3.z += fz * MOVE_SPEED * dt;
-         moving = true;
-      }
-      if (keys.has('arrowdown') || keys.has('s')) {
-         hero3.x -= fx * MOVE_SPEED * dt;
-         hero3.z -= fz * MOVE_SPEED * dt;
-         moving = true;
-      }
+      if (moving) {
+         const len = Math.hypot(mx, mz);
+         mx /= len;
+         mz /= len;
+         const step = MOVE_SPEED * dt;
+         const nx = hero3.x + mx * step;
+         if (!collides(nx, hero3.z)) hero3.x = nx;
+         const nz = hero3.z + mz * step;
+         if (!collides(hero3.x, nz)) hero3.z = nz;
 
-      // keep the adventurer on the platform
-      const dist = Math.hypot(hero3.x, hero3.z);
-      if (dist > PLATFORM_RADIUS - 1.5) {
-         const scale = (PLATFORM_RADIUS - 1.5) / dist;
-         hero3.x *= scale;
-         hero3.z *= scale;
+         // turn smoothly toward the direction of travel
+         const target = Math.atan2(mx, mz);
+         let d = target - hero3.angle;
+         d = ((d + Math.PI) % (Math.PI * 2) + Math.PI * 2) % (Math.PI * 2) - Math.PI;
+         hero3.angle += d * Math.min(1, dt * 10);
       }
 
       hero.group.position.set(hero3.x, 0, hero3.z);
       hero.group.rotation.y = hero3.angle;
-      hero.animate(t, moving);
+      hero.animate(t, dt, speedFactor);
+
+      updateReveal(pending, hero3.x, hero3.z, dt);
 
       camera.position.lerp(
-         new THREE.Vector3(hero3.x - fx * camDist, camHeight, hero3.z - fz * camDist),
-         0.08
+         new THREE.Vector3(hero3.x + camOffset.x, camOffset.y, hero3.z + camOffset.z),
+         0.1
       );
-      camera.lookAt(hero3.x, 1.2, hero3.z);
+      camera.lookAt(hero3.x, 0.9, hero3.z);
 
-      for (const torch of torchLights) {
-         torch.light.intensity = torch.base + Math.sin(t * 9 + torch.phase) * 0.25 + (Math.random() - 0.5) * 0.1;
+      for (const brazier of braziers) {
+         brazier.light.intensity =
+            brazier.reveal.amount *
+            (brazier.base + Math.sin(t * 9 + brazier.phase) * 0.3 + (Math.random() - 0.5) * 0.1);
       }
 
       eye.animate(t);
@@ -141,55 +162,183 @@ export function startEpilogue(canvas, width, height) {
    };
 }
 
-/** Dim cool ambience plus a far moonlight glow — torches do the real work. */
-function buildLighting(scene) {
-   scene.add(new THREE.AmbientLight(0x202035, 0.7));
-   const moon = new THREE.DirectionalLight(0x4060a0, 0.3);
-   moon.position.set(-12, 18, -8);
-   scene.add(moon);
+/** Wall collision for the hero's circle, checked at its four corners. */
+function collides(x, z) {
+   const r = HERO_RADIUS;
+   return cryptBlockedAt(x - r, z - r) || cryptBlockedAt(x + r, z - r) ||
+          cryptBlockedAt(x - r, z + r) || cryptBlockedAt(x + r, z + r);
 }
 
-/** Procedurally textured stone disc the platform rests on. */
-function buildGround() {
-   const tex = makeStoneTexture();
-   tex.repeat.set(6, 6);
-   const mat = new THREE.MeshStandardMaterial({ map: tex, color: 0x6b5a3c, roughness: 0.95, metalness: 0.03 });
-   const ground = new THREE.Mesh(new THREE.CylinderGeometry(PLATFORM_RADIUS, PLATFORM_RADIUS * 1.04, 1, 48), mat);
-   ground.position.y = -0.5;
-   ground.receiveShadow = true;
-   return ground;
+/**
+ * Registers an object for the fog-of-war reveal: all its materials are
+ * cloned, made transparent, and start at opacity 0.
+ */
+function makeRevealable(obj, x, z, pending) {
+   const mats = [];
+   obj.traverse((o) => {
+      if (o.material) {
+         o.material = o.material.clone();
+         o.material.transparent = true;
+         o.material.opacity = 0;
+         mats.push(o.material);
+      }
+   });
+   const entry = { x, z, amount: 0, mats };
+   pending.push(entry);
+   return entry;
 }
 
-/** A ring of broken pillars around the platform edge, half of them lit by torches. */
-function buildPillars(scene) {
-   const tex = makeStoneTexture();
-   const mat = new THREE.MeshStandardMaterial({ map: tex, color: 0x4a3c28, roughness: 0.9 });
-   const flameMat = new THREE.MeshStandardMaterial({ color: 0xffaa33, emissive: 0xff7700, emissiveIntensity: 2.2 });
-   const torchLights = [];
-   const count = 8;
+/** Fades in any pending geometry within torch range; revealed tiles stay lit. */
+function updateReveal(pending, px, pz, dt) {
+   for (let i = pending.length - 1; i >= 0; i--) {
+      const entry = pending[i];
+      if (entry.amount === 0 && Math.hypot(entry.x - px, entry.z - pz) > REVEAL_RADIUS) continue;
+      entry.amount = Math.min(1, entry.amount + REVEAL_SPEED * dt);
+      for (const mat of entry.mats) mat.opacity = entry.amount;
+      if (entry.amount >= 1) {
+         for (const mat of entry.mats) {
+            mat.transparent = false;
+            mat.needsUpdate = true;
+         }
+         pending.splice(i, 1);
+      }
+   }
+}
 
-   for (let i = 0; i < count; i++) {
-      const angle = (i / count) * Math.PI * 2;
-      const r = PLATFORM_RADIUS - 1.3;
-      const h = 2 + Math.random() * 2.5;
-      const pillar = new THREE.Mesh(new THREE.CylinderGeometry(0.5, 0.62, h, 12), mat);
-      pillar.position.set(Math.cos(angle) * r, h / 2, Math.sin(angle) * r);
-      pillar.castShadow = true;
-      scene.add(pillar);
+/**
+ * Builds the crypt from the tile map: chunky stone floors, blocky walls with
+ * visible mortar courses, waist-high rubble at the broken north wall, plus
+ * braziers, bones, and debris. Every piece is registered as revealable.
+ *
+ * @return {Array<{light: THREE.PointLight, base: number, phase: number, reveal: object}>}
+ *   brazier flames to flicker each frame
+ */
+function buildCrypt(scene, pending) {
+   const stoneTex = makeStoneTexture();
+   const wallMat = new THREE.MeshStandardMaterial({ map: stoneTex, color: 0x7a6a4e, roughness: 0.92 });
+   const floorMat = new THREE.MeshStandardMaterial({ map: stoneTex, color: 0x4e4639, roughness: 0.96 });
+   const rubbleMat = new THREE.MeshStandardMaterial({ map: stoneTex, color: 0x5c4f3a, roughness: 0.95 });
+   const boneMat = new THREE.MeshStandardMaterial({ color: 0xcfc6ae, roughness: 0.9 });
 
-      if (i % 2 === 0) {
-         const flame = new THREE.Mesh(new THREE.SphereGeometry(0.18, 8, 8), flameMat);
-         flame.position.set(pillar.position.x, h + 0.3, pillar.position.z);
-         scene.add(flame);
+   const wallGeo = new THREE.BoxGeometry(CRYPT_TILE, WALL_HEIGHT, CRYPT_TILE);
+   const floorGeo = new THREE.BoxGeometry(CRYPT_TILE, 0.2, CRYPT_TILE);
+   const rubbleGeo = new THREE.BoxGeometry(CRYPT_TILE, 0.9, CRYPT_TILE * 0.8);
 
-         const light = new THREE.PointLight(0xff9944, 1.4, 13, 2);
-         light.position.copy(flame.position);
-         scene.add(light);
-         torchLights.push({ light, base: 1.4, phase: i });
+   const braziers = [];
+
+   for (let row = 0; row < CRYPT_ROWS; row++) {
+      for (let col = 0; col < CRYPT_COLS; col++) {
+         const tile = CRYPT_MAP[row][col];
+         if (tile === ' ') continue;
+         const { x, z } = cryptTileCenter(col, row);
+
+         if (tile === '#') {
+            const wall = new THREE.Mesh(wallGeo, wallMat);
+            const h = WALL_HEIGHT * (0.92 + Math.random() * 0.16);
+            wall.scale.y = h / WALL_HEIGHT;
+            wall.position.set(x, h / 2, z);
+            varyTint(makeRevealable(wall, x, z, pending));
+            scene.add(wall);
+            continue;
+         }
+
+         // every walkable (and rubble) tile gets a floor slab
+         const floor = new THREE.Mesh(floorGeo, floorMat);
+         floor.position.set(x, -0.1, z);
+         varyTint(makeRevealable(floor, x, z, pending));
+         scene.add(floor);
+
+         if (tile === '=') {
+            const rubble = new THREE.Mesh(rubbleGeo, rubbleMat);
+            rubble.position.set(x, 0.45, z);
+            rubble.rotation.y = (Math.random() - 0.5) * 0.2;
+            varyTint(makeRevealable(rubble, x, z, pending));
+            scene.add(rubble);
+         } else if (tile === 't') {
+            const brazier = buildBrazier();
+            brazier.group.position.set(x, 0, z);
+            const reveal = makeRevealable(brazier.group, x, z, pending);
+            braziers.push({ light: brazier.light, base: 1.6, phase: row * 7 + col, reveal });
+            scene.add(brazier.group);
+         } else if (tile === 'b') {
+            const bones = buildBones(boneMat);
+            bones.position.set(x, 0, z);
+            makeRevealable(bones, x, z, pending);
+            scene.add(bones);
+         } else if (tile === 'r') {
+            const pile = buildRubblePile(rubbleMat);
+            pile.position.set(x, 0, z);
+            varyTint(makeRevealable(pile, x, z, pending));
+            scene.add(pile);
+         }
       }
    }
 
-   return torchLights;
+   return braziers;
+}
+
+/** Slight per-tile brightness variance so the stonework reads as masonry. */
+function varyTint(revealEntry) {
+   const k = 0.82 + Math.random() * 0.32;
+   for (const mat of revealEntry.mats) {
+      if (mat.color) mat.color.multiplyScalar(k);
+   }
+}
+
+/** A standing iron brazier with a guttering flame and its light. */
+function buildBrazier() {
+   const group = new THREE.Group();
+   const iron = new THREE.MeshStandardMaterial({ color: 0x241f1a, roughness: 0.7, metalness: 0.4 });
+
+   const pole = new THREE.Mesh(new THREE.CylinderGeometry(0.06, 0.09, 1.1, 8), iron);
+   pole.position.y = 0.55;
+   group.add(pole);
+
+   const bowl = new THREE.Mesh(new THREE.CylinderGeometry(0.22, 0.12, 0.16, 10), iron);
+   bowl.position.y = 1.14;
+   group.add(bowl);
+
+   const flame = new THREE.Mesh(
+      new THREE.SphereGeometry(0.14, 8, 8),
+      new THREE.MeshStandardMaterial({ color: 0xffaa33, emissive: 0xff7700, emissiveIntensity: 2.2 })
+   );
+   flame.position.y = 1.32;
+   group.add(flame);
+
+   const light = new THREE.PointLight(0xff9944, 0, 9, 2);
+   light.position.y = 1.45;
+   group.add(light);
+
+   return { group, light };
+}
+
+/** A scatter of old bones: a few fallen long bones and a skull. */
+function buildBones(boneMat) {
+   const group = new THREE.Group();
+   for (let i = 0; i < 3; i++) {
+      const bone = new THREE.Mesh(new THREE.CapsuleGeometry(0.035, 0.3, 3, 6), boneMat);
+      bone.rotation.set(Math.PI / 2, 0, Math.random() * Math.PI);
+      bone.position.set((Math.random() - 0.5) * 0.9, 0.05, (Math.random() - 0.5) * 0.9);
+      group.add(bone);
+   }
+   const skull = new THREE.Mesh(new THREE.SphereGeometry(0.11, 8, 8), boneMat);
+   skull.position.set((Math.random() - 0.5) * 0.6, 0.1, (Math.random() - 0.5) * 0.6);
+   skull.scale.y = 0.85;
+   group.add(skull);
+   return group;
+}
+
+/** A small heap of fallen masonry. */
+function buildRubblePile(rubbleMat) {
+   const group = new THREE.Group();
+   for (let i = 0; i < 3; i++) {
+      const size = 0.18 + Math.random() * 0.18;
+      const rock = new THREE.Mesh(new THREE.DodecahedronGeometry(size, 0), rubbleMat);
+      rock.position.set((Math.random() - 0.5) * 0.8, size * 0.7, (Math.random() - 0.5) * 0.8);
+      rock.rotation.set(Math.random(), Math.random(), Math.random());
+      group.add(rock);
+   }
+   return group;
 }
 
 /** Generates a tileable stone-block texture (no external image assets). */
@@ -231,76 +380,162 @@ function makeStoneTexture() {
 }
 
 /**
- * A low-poly adventurer built from primitives, carrying the same torch
- * glyph from the 2D game. `animate(t, moving)` drives idle breathing and a
- * walk-cycle leg/arm swing.
+ * The hooded thief: slim and low to the ground, amber eyes glinting under a
+ * dark cowl, torch raised in the right hand, a steel dagger in the left, and
+ * a cape that drapes at rest and streams behind him as he runs (animated at
+ * the vertex level). The model faces +z when its rotation is 0.
+ *
+ * `animate(t, dt, speedFactor)` drives the sneak-run lean, leg swing, cape
+ * physics, torch flicker, and the trail of embers rising off the torch.
  */
 function buildHero() {
    const group = new THREE.Group();
+   const body = new THREE.Group();
+   group.add(body);
 
-   const robeMat = new THREE.MeshStandardMaterial({ color: 0x6e1f17, roughness: 0.7 });
-   const skinMat = new THREE.MeshStandardMaterial({ color: 0xd8c9a3, roughness: 0.6 });
-   const trimMat = new THREE.MeshStandardMaterial({ color: 0xc9a227, roughness: 0.35, metalness: 0.6 });
-   const limbMat = new THREE.MeshStandardMaterial({ color: 0x3a2c15, roughness: 0.8 });
+   const cloth = new THREE.MeshStandardMaterial({ color: 0x221e2c, roughness: 0.9 });
+   const leather = new THREE.MeshStandardMaterial({ color: 0x2c2118, roughness: 0.85 });
+   const capeMat = new THREE.MeshStandardMaterial({ color: 0x191622, roughness: 0.95, side: THREE.DoubleSide });
+   const trim = new THREE.MeshStandardMaterial({ color: 0xc9a227, roughness: 0.35, metalness: 0.6 });
+   const steel = new THREE.MeshStandardMaterial({ color: 0x9aa3ad, roughness: 0.35, metalness: 0.8 });
+   const limb = new THREE.MeshStandardMaterial({ color: 0x1c1812, roughness: 0.85 });
 
-   const torso = new THREE.Mesh(new THREE.CapsuleGeometry(0.35, 0.7, 4, 8), robeMat);
-   torso.position.y = 1.1;
-   torso.castShadow = true;
-   group.add(torso);
+   const torso = new THREE.Mesh(new THREE.CapsuleGeometry(0.26, 0.5, 4, 8), leather);
+   torso.position.y = 0.95;
+   body.add(torso);
 
-   const head = new THREE.Mesh(new THREE.SphereGeometry(0.26, 16, 16), skinMat);
-   head.position.y = 1.75;
-   head.castShadow = true;
-   group.add(head);
+   const hood = new THREE.Mesh(new THREE.ConeGeometry(0.24, 0.46, 10), cloth);
+   hood.position.y = 1.5;
+   hood.rotation.x = 0.16;
+   body.add(hood);
 
-   const belt = new THREE.Mesh(new THREE.TorusGeometry(0.37, 0.05, 8, 16), trimMat);
+   const face = new THREE.Mesh(new THREE.SphereGeometry(0.16, 12, 12),
+      new THREE.MeshStandardMaterial({ color: 0x8a7a64, roughness: 0.8 }));
+   face.position.set(0, 1.37, 0.06);
+   body.add(face);
+
+   const eyeMat = new THREE.MeshStandardMaterial({ color: 0xffcc66, emissive: 0xffaa33, emissiveIntensity: 1.6 });
+   for (const side of [-1, 1]) {
+      const glint = new THREE.Mesh(new THREE.SphereGeometry(0.025, 6, 6), eyeMat);
+      glint.position.set(side * 0.06, 1.4, 0.18);
+      body.add(glint);
+   }
+
+   const belt = new THREE.Mesh(new THREE.TorusGeometry(0.28, 0.035, 8, 16), trim);
    belt.rotation.x = Math.PI / 2;
-   belt.position.y = 0.85;
-   group.add(belt);
+   belt.position.y = 0.72;
+   body.add(belt);
 
-   const legGeo = new THREE.CylinderGeometry(0.1, 0.12, 0.8, 8);
-   const legL = new THREE.Mesh(legGeo, limbMat);
-   const legR = new THREE.Mesh(legGeo, limbMat);
-   legL.position.set(-0.15, 0.4, 0);
-   legR.position.set(0.15, 0.4, 0);
-   legL.castShadow = legR.castShadow = true;
-   group.add(legL, legR);
+   const legGeo = new THREE.CylinderGeometry(0.07, 0.09, 0.65, 8);
+   const legL = new THREE.Mesh(legGeo, limb);
+   const legR = new THREE.Mesh(legGeo, limb);
+   legL.position.set(-0.12, 0.33, 0);
+   legR.position.set(0.12, 0.33, 0);
+   body.add(legL, legR);
 
-   const armGeo = new THREE.CylinderGeometry(0.08, 0.1, 0.6, 8);
-   const armL = new THREE.Mesh(armGeo, robeMat);
-   const armR = new THREE.Mesh(armGeo, robeMat);
-   armL.position.set(-0.45, 1.15, 0);
-   armR.position.set(0.45, 1.15, 0);
-   group.add(armL, armR);
+   // right arm raised, holding the torch high
+   const armGeo = new THREE.CylinderGeometry(0.06, 0.07, 0.5, 8);
+   const armR = new THREE.Mesh(armGeo, cloth);
+   armR.position.set(0.34, 1.32, 0.05);
+   armR.rotation.z = -0.85;
+   body.add(armR);
 
    const torchGroup = new THREE.Group();
-   const handle = new THREE.Mesh(new THREE.CylinderGeometry(0.03, 0.03, 0.5, 6), limbMat);
+   const handle = new THREE.Mesh(new THREE.CylinderGeometry(0.025, 0.025, 0.42, 6), limb);
    const flame = new THREE.Mesh(
-      new THREE.SphereGeometry(0.1, 8, 8),
+      new THREE.SphereGeometry(0.09, 8, 8),
       new THREE.MeshStandardMaterial({ color: 0xffaa33, emissive: 0xff7700, emissiveIntensity: 2.5 })
    );
-   flame.position.y = 0.3;
+   flame.position.y = 0.26;
    torchGroup.add(handle, flame);
-   torchGroup.position.set(0.5, 0.9, 0.15);
-   group.add(torchGroup);
+   torchGroup.position.set(0.52, 1.6, 0.1);
+   body.add(torchGroup);
 
-   const torchLight = new THREE.PointLight(0xff9944, 1.2, 6, 2);
-   torchLight.position.set(0.5, 1.3, 0.15);
-   group.add(torchLight);
+   const torchLight = new THREE.PointLight(0xff9944, 2.4, 11, 2);
+   torchLight.position.set(0.52, 1.85, 0.1);
+   body.add(torchLight);
 
-   function animate(t, moving) {
-      const bob = moving ? Math.sin(t * 8) : Math.sin(t * 2) * 0.3;
-      torso.position.y = 1.1 + bob * 0.04;
-      head.position.y = 1.75 + bob * 0.04;
+   // left arm forward and low, dagger drawn
+   const armL = new THREE.Mesh(armGeo, cloth);
+   armL.position.set(-0.3, 1.08, 0.18);
+   armL.rotation.x = 1.15;
+   body.add(armL);
 
-      const swing = moving ? Math.sin(t * 8) * 0.5 : 0;
+   const dagger = new THREE.Group();
+   const blade = new THREE.Mesh(new THREE.ConeGeometry(0.035, 0.32, 6), steel);
+   blade.rotation.x = Math.PI / 2;
+   const guard = new THREE.Mesh(new THREE.BoxGeometry(0.12, 0.03, 0.03), trim);
+   dagger.add(blade, guard);
+   dagger.position.set(-0.3, 0.98, 0.42);
+   body.add(dagger);
+
+   const capeGeo = new THREE.PlaneGeometry(0.62, 1.05, 3, 6);
+   capeGeo.translate(0, -0.525, 0);
+   const cape = new THREE.Mesh(capeGeo, capeMat);
+   cape.position.set(0, 1.42, -0.18);
+   body.add(cape);
+
+   // embers shed by the torch, drifting upward in the hero's local space
+   const trailCount = 14;
+   const trailPos = new Float32Array(trailCount * 3);
+   const trailLife = new Float32Array(trailCount);
+   const trailGeo = new THREE.BufferGeometry();
+   trailGeo.setAttribute('position', new THREE.BufferAttribute(trailPos, 3));
+   const trail = new THREE.Points(trailGeo, new THREE.PointsMaterial({
+      color: 0xffaa44,
+      size: 0.06,
+      transparent: true,
+      opacity: 0.9,
+      blending: THREE.AdditiveBlending,
+      depthWrite: false,
+   }));
+   body.add(trail);
+
+   function resetEmber(i) {
+      trailPos[i * 3] = 0.52 + (Math.random() - 0.5) * 0.08;
+      trailPos[i * 3 + 1] = 1.85;
+      trailPos[i * 3 + 2] = 0.1 + (Math.random() - 0.5) * 0.08;
+      trailLife[i] = 0.3 + Math.random() * 0.8;
+   }
+   for (let i = 0; i < trailCount; i++) resetEmber(i);
+
+   function animate(t, dt, speedFactor) {
+      // sneak-run: lean into the dark, slight crouch, quick leg swing
+      body.rotation.x = 0.18 * speedFactor;
+      body.position.y = -0.05 * speedFactor + Math.sin(t * 2) * 0.012;
+
+      const swing = Math.sin(t * 10) * 0.55 * speedFactor;
       legL.rotation.x = swing;
       legR.rotation.x = -swing;
-      armL.rotation.x = -swing * 0.6;
-      armR.rotation.x = swing * 0.6;
+      armL.rotation.x = 1.15 + Math.sin(t * 10) * 0.18 * speedFactor;
+
+      // cape: drapes at rest, billows and ripples behind him at speed
+      const pos = capeGeo.attributes.position;
+      for (let i = 0; i < pos.count; i++) {
+         const x = pos.getX(i);
+         const y = pos.getY(i);
+         const drape = -y / 1.05; // 0 at the shoulders, 1 at the hem
+         const billow = drape * drape * (0.22 + speedFactor * 0.7);
+         const ripple = Math.sin(t * (3 + speedFactor * 7) + y * 5 + x * 3) * 0.06 * drape;
+         pos.setZ(i, -billow + ripple);
+      }
+      pos.needsUpdate = true;
+      capeGeo.computeVertexNormals();
 
       flame.scale.setScalar(1 + Math.sin(t * 20) * 0.15);
-      torchLight.intensity = 1.2 + Math.sin(t * 15) * 0.2;
+      torchLight.intensity = 2.4 + Math.sin(t * 15) * 0.3;
+
+      for (let i = 0; i < trailCount; i++) {
+         trailLife[i] -= dt;
+         if (trailLife[i] <= 0) {
+            resetEmber(i);
+            continue;
+         }
+         trailPos[i * 3] += (Math.random() - 0.5) * 0.01;
+         trailPos[i * 3 + 1] += dt * 1.1;
+         trailPos[i * 3 + 2] += (Math.random() - 0.5) * 0.01;
+      }
+      trailGeo.attributes.position.needsUpdate = true;
    }
 
    return { group, animate };
@@ -308,7 +543,7 @@ function buildHero() {
 
 /**
  * The vast presence beyond Darkhollow: a dark, faceted shell with a glowing
- * eye that slowly drifts open. `animate(t)` pulses its emissive glow.
+ * eye that looms past the broken north wall. `animate(t)` pulses its glow.
  */
 function buildEye() {
    const group = new THREE.Group();
@@ -348,18 +583,18 @@ function buildEye() {
    return { group, animate };
 }
 
-/** Drifting embers rising from the platform, additive-blended points. */
+/** Drifting embers rising through the crypt, additive-blended points. */
 function buildEmbers() {
    const count = 90;
+   const spanX = (CRYPT_COLS / 2) * CRYPT_TILE;
+   const spanZ = (CRYPT_ROWS / 2) * CRYPT_TILE;
    const positions = new Float32Array(count * 3);
    const speeds = new Float32Array(count);
 
    for (let i = 0; i < count; i++) {
-      const angle = Math.random() * Math.PI * 2;
-      const r = Math.random() * PLATFORM_RADIUS;
-      positions[i * 3] = Math.cos(angle) * r;
+      positions[i * 3] = (Math.random() * 2 - 1) * spanX;
       positions[i * 3 + 1] = Math.random() * 5;
-      positions[i * 3 + 2] = Math.sin(angle) * r;
+      positions[i * 3 + 2] = (Math.random() * 2 - 1) * spanZ;
       speeds[i] = 0.01 + Math.random() * 0.02;
    }
 

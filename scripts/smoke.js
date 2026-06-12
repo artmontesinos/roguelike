@@ -7,6 +7,7 @@ import { Rand } from '../src/rng.js';
 import { generateDungeon } from '../src/dungeon.js';
 import { Game } from '../src/game.js';
 import { MAX_DEPTH, RECIPES } from '../src/data.js';
+import { CRYPT_MAP, cryptTile, isCryptWalkable } from '../src/crypt.js';
 
 let passed = 0;
 function ok(label, fn) {
@@ -122,7 +123,50 @@ ok('descend advances depth and regenerates the level', () => {
    assert.notEqual(game.tiles, oldTiles);
 });
 
+console.log('epilogue crypt');
+
+ok('every walkable tile is reachable from the start', () => {
+   assert.ok(CRYPT_MAP.every((row) => row.length === CRYPT_MAP[0].length), 'ragged map rows');
+   const seen = floodCrypt();
+   for (let row = 0; row < CRYPT_MAP.length; row++) {
+      for (let col = 0; col < CRYPT_MAP[0].length; col++) {
+         if (isCryptWalkable(cryptTile(col, row))) {
+            assert.ok(seen.has(col + ',' + row), `tile ${col},${row} unreachable`);
+         }
+      }
+   }
+});
+
+ok('the rubble vantage onto the Eye is reachable', () => {
+   const seen = floodCrypt();
+   let vantage = false;
+   for (const key of seen) {
+      const [col, row] = key.split(',').map(Number);
+      if (cryptTile(col, row - 1) === '=') vantage = true;
+   }
+   assert.ok(vantage, 'no reachable tile borders the rubble wall');
+});
+
 console.log(`\n${passed} checks passed.`);
+
+/** BFS over the epilogue crypt's walkable tiles from the start. */
+function floodCrypt() {
+   const startRow = CRYPT_MAP.findIndex((row) => row.includes('S'));
+   const startCol = CRYPT_MAP[startRow].indexOf('S');
+   const seen = new Set([startCol + ',' + startRow]);
+   const queue = [[startCol, startRow]];
+   while (queue.length) {
+      const [col, row] = queue.shift();
+      for (const [dc, dr] of [[0, 1], [0, -1], [1, 0], [-1, 0]]) {
+         const key = (col + dc) + ',' + (row + dr);
+         if (!seen.has(key) && isCryptWalkable(cryptTile(col + dc, row + dr))) {
+            seen.add(key);
+            queue.push([col + dc, row + dr]);
+         }
+      }
+   }
+   return seen;
+}
 
 /** BFS over floor tiles. */
 function reachable(tiles, from, to) {

@@ -35,9 +35,11 @@ npm test        # headless smoke tests of the game logic
 | Click inventory items | Use / equip |
 | Click recipes | Craft |
 
-After defeating the Pale Wyrm, the 3D epilogue uses **arrow keys / WASD** to
-walk around in real time (turn left/right, walk forward/back), and **Enter**
-to wake from the vision once the lore finishes.
+After defeating the Pale Wyrm, the 3D epilogue puts you in the boots of a
+caped thief exploring a torchlit crypt: **arrow keys / WASD** (or the touch
+d-pad) move in eight directions in real time, the dark revealing itself as
+your torch approaches. **Enter** (or the d-pad's center ⏎ on touch) wakes
+you from the vision once the lore finishes.
 
 ## License
 
