@@ -72,15 +72,31 @@ function afterAction() {
    }
 }
 
-/** Hides the 2D canvas, shows the epilogue canvas, and starts the 3D scene. */
+/**
+ * Hides the 2D canvas, shows the epilogue canvas, and starts the 3D scene.
+ * Entered with a live run ('playing'), the crypt is hostile: monsters,
+ * Space/X (or d-pad ⚔) melee, loot, and shared xp/inventory. Entered after
+ * victory ('won'), it stays the peaceful lore vision.
+ */
 async function enterEpilogue() {
    document.getElementById('game-canvas').classList.add('hidden');
    const epilogueCanvas = document.getElementById('epilogue-canvas');
    epilogueCanvas.classList.remove('hidden');
 
+   const combat = game && game.status === 'playing';
    const { startEpilogue } = await import('./epilogue.js');
-   epilogueCtl = startEpilogue(epilogueCanvas, STAGE_WIDTH, STAGE_HEIGHT);
+   epilogueCtl = startEpilogue(epilogueCanvas, STAGE_WIDTH, STAGE_HEIGHT, combat ? {
+      game,
+      onStateChange: () => {
+         updateUI(game);
+         if (game.status === 'playing') saveGame(game);
+      },
+      onHeroDeath: handleCryptDeath,
+   } : {});
    document.getElementById('minimap').classList.remove('hidden');
+
+   const centerBtn = document.querySelector('#dpad [data-act="descend"]');
+   if (centerBtn) centerBtn.textContent = combat ? '⚔' : '⏎';
 }
 
 /**
@@ -126,8 +142,8 @@ function beginReveal() {
    });
 }
 
-/** Tears down the 3D scene, restores the dungeon canvas, and shows the win overlay. */
-function endEpilogue() {
+/** Disposes the 3D scene and restores the 2D canvas and d-pad. */
+function teardownEpilogue() {
    epilogueReady = false;
    if (epilogueCtl) {
       epilogueCtl.dispose();
@@ -138,8 +154,29 @@ function endEpilogue() {
    document.getElementById('minimap').classList.add('hidden');
    document.getElementById('game-canvas').classList.remove('hidden');
 
-   const wakeBtn = document.querySelector('#dpad [data-act="descend"]');
-   if (wakeBtn) wakeBtn.textContent = '▼▼';
+   const centerBtn = document.querySelector('#dpad [data-act="descend"]');
+   if (centerBtn) centerBtn.textContent = '▼▼';
+}
+
+/** The hero fell in the crypt: permadeath, then offer a fresh run. */
+function handleCryptDeath() {
+   if (finished) return;
+   finished = true;
+   clearSave();
+   recordRun(game);
+   updateUI(game);
+   teardownEpilogue();
+   showOverlay(
+      'You Have Fallen',
+      `Slain in the world beyond at level ${game.player.level}, carrying ${game.player.gold} gold. ` +
+      'The dark keeps what it takes.',
+      [['New Run', startNewRun]]
+   );
+}
+
+/** Tears down the 3D scene, restores the dungeon canvas, and shows the win overlay. */
+function endEpilogue() {
+   teardownEpilogue();
 
    showOverlay(
       'The Crown Is Yours',
@@ -153,8 +190,13 @@ function startNewRun() {
    finished = false;
    game = new Game(Math.floor(Math.random() * 2 ** 31));
    hideOverlay();
-   refresh();
    saveGame(game);
+   if (DEV_3D_PREVIEW) {
+      updateUI(game);
+      enterEpilogue();
+   } else {
+      refresh();
+   }
 }
 
 function continueRun(data) {
@@ -248,13 +290,34 @@ function toggleHud(id) {
    document.getElementById(id).classList.toggle('hidden');
 }
 
-document.getElementById('side-panel').addEventListener('click', (e) => {
+/**
+ * Use/equip/craft clicks from the side panel or the in-stage HUD overlay.
+ * During the 3D crypt these route through the sim's turn-free variants so
+ * the dormant 2D dungeon doesn't advance; in 2D they spend a turn as usual.
+ */
+function handleItemClick(e) {
    if (!game || game.status !== 'playing' || overlayOpen()) return;
    const itemRow = e.target.closest('[data-item]');
    const recipeRow = e.target.closest('[data-recipe]');
+   if (!itemRow && !recipeRow) return;
+
+   if (epilogueCtl && epilogueCtl.sim) {
+      const acted = itemRow
+         ? epilogueCtl.sim.useItem(itemRow.dataset.item)
+         : epilogueCtl.sim.craft(recipeRow.dataset.recipe);
+      if (acted) {
+         updateUI(game);
+         saveGame(game);
+      }
+      return;
+   }
+
    if (itemRow && game.useItem(itemRow.dataset.item)) afterAction();
    else if (recipeRow && game.craft(recipeRow.dataset.recipe)) afterAction();
-});
+}
+
+document.getElementById('side-panel').addEventListener('click', handleItemClick);
+document.getElementById('inventory-hud').addEventListener('click', handleItemClick);
 
 document.getElementById('stats-panel').addEventListener('click', (e) => {
    if (!game || overlayOpen()) return;
@@ -268,7 +331,10 @@ dpad.addEventListener('click', (e) => {
    if (!btn) return;
 
    if (epilogueCtl) {
-      if (btn.dataset.act === 'descend' && epilogueReady) endEpilogue();
+      if (btn.dataset.act === 'descend') {
+         if (epilogueReady) endEpilogue();
+         else epilogueCtl.attack(); // ⚔: explicit swing, same as Space
+      }
       return;
    }
 

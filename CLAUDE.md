@@ -63,6 +63,8 @@ npm test         # node scripts/smoke.js — headless logic tests
 │   ├── transition.js    # 2D canvas "reality fracture" shatter/flash effect
 │   ├── crypt.js         # Tile map + helpers for the 3D epilogue crypt
 │   │                     #   (DOM-free; connectivity is smoke-tested)
+│   ├── cryptCombat.js   # `CryptSim`: real-time monsters/melee/loot for the
+│   │                     #   3D crypt (DOM-free; shares player state via Game)
 │   ├── epilogue.js       # Post-victory 3D scene (Three.js, lazy-loaded);
 │   │                     #   procedural geometry/textures, no asset files
 │   └── styles.css       # Dark medieval theme (Cinzel / IM Fell English fonts)
@@ -74,10 +76,11 @@ npm test         # node scripts/smoke.js — headless logic tests
 ## Architecture
 
 The key boundary: **`game.js` (plus `dungeon.js`, `fov.js`, `rng.js`,
-`data.js`, and `crypt.js`) is completely DOM-free** and runs in plain Node —
-this is what makes `npm test` possible. Keep it that way: anything touching
-`document`, `canvas`, `localStorage`, or `three` belongs in `main.js`,
-`ui.js`, `render.js`, `save.js`, `transition.js`, or `epilogue.js`.
+`data.js`, `crypt.js`, and `cryptCombat.js`) is completely DOM-free** and
+runs in plain Node — this is what makes `npm test` possible. Keep it that
+way: anything touching `document`, `canvas`, `localStorage`, or `three`
+belongs in `main.js`, `ui.js`, `render.js`, `save.js`, `transition.js`, or
+`epilogue.js`.
 
 ### Turn loop
 Input arrives in `main.js`, which calls a `Game` method (`tryMove`, `useItem`,
@@ -139,7 +142,16 @@ On `game.status === 'won'`, `main.js#beginReveal()`:
    drifting embers, and a glowing "Eye" loom past a rubble wall — all built
    from primitives + a canvas-generated stone texture, no asset files. The
    `#minimap` canvas (M to toggle) charts only torch-revealed tiles, plus
-   the hero's position/facing and the Eye once the rubble vantage is found.
+   the hero's position/facing, awake monsters, loot, and the Eye once the
+   rubble vantage is found. When `startEpilogue` is given a live run
+   (`opts.game`, `status === 'playing'`), `cryptCombat.js`'s `CryptSim`
+   makes the crypt hostile: monsters (map markers `k`/`p`/`w` in crypt.js)
+   wake near the torch, chase, and strike on cooldowns; the hero's dagger
+   swings a 120° cone via an **explicit** attack input (Space/X or d-pad ⚔)
+   — never by bumping; drops/xp/gold flow into the shared `Game` player,
+   and `sim.useItem`/`sim.craft` are turn-free so the dormant 2D dungeon
+   never advances. Entered after victory ('won'), no sim is created and the
+   crypt remains the peaceful lore vision.
 3. Lore lines fade in via `#epilogue-text`; once they finish, Enter calls
    `endEpilogue()`, which disposes the Three.js renderer/scene, restores the
    2D canvas, and shows the normal win overlay.
@@ -173,7 +185,8 @@ remove them (and dispose geometries/materials/renderer) in `dispose()` —
 ## Things to Watch Out For
 
 - Don't introduce DOM/localStorage references into `game.js`, `dungeon.js`,
-  `fov.js`, `rng.js`, `data.js`, or `crypt.js` — it will break `npm test`.
+  `fov.js`, `rng.js`, `data.js`, `crypt.js`, or `cryptCombat.js` — it will
+  break `npm test`.
 - The save format round-trip test (`serialize` → `fromSave` → `serialize`
   deep-equal) means new `Game` state fields must be added to **both**
   `serialize()` and `fromSave()`.

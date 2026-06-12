@@ -85,7 +85,11 @@ function inventoryRows(game, interactive) {
 }
 
 function renderCrafting(game) {
-   document.getElementById('crafting').innerHTML = RECIPES.map((recipe) => {
+   document.getElementById('crafting').innerHTML = craftingRows(game);
+}
+
+function craftingRows(game) {
+   return RECIPES.map((recipe) => {
       const out = ITEMS[recipe.out];
       const craftable = game.canCraft(recipe);
       const needs = Object.entries(recipe.needs)
@@ -105,11 +109,15 @@ function renderCrafting(game) {
    }).join('');
 }
 
-/** Fills the toggleable inventory/character overlays shown over the 3D view. */
+/**
+ * Fills the toggleable inventory/character overlays shown over the 3D view.
+ * The pack HUD is interactive (use/equip/craft) — clicks are handled by the
+ * same delegate as the side panel in main.js.
+ */
 function renderHud(game) {
    const invHud = document.getElementById('inventory-hud-content');
    const charHud = document.getElementById('character-hud-content');
-   if (invHud) invHud.innerHTML = inventoryRows(game, false);
+   if (invHud) invHud.innerHTML = inventoryRows(game, true) + '<h3>Craft</h3>' + craftingRows(game);
    if (charHud) charHud.innerHTML = characterSheet(game);
 }
 

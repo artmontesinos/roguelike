@@ -11,25 +11,43 @@
  *   't'  floor with a standing brazier
  *   'b'  floor with scattered bones
  *   'r'  floor with a rubble pile
+ *   'k'  floor where a skeleton lurks
+ *   'p'  floor where a crypt spider lurks
+ *   'w'  floor where a wraith lurks
  */
 export const CRYPT_MAP = [
    '######        ######',
    '######========######',
-   '###..............###',
+   '###........w.....###',
    '##.....t....t.....##',
-   '##................##',
+   '##......k.........##',
    '##....########....##',
    '###...########...###',
-   '###...########...###',
-   '###...########...###',
+   '###.p.########...###',
+   '###...########.k.###',
    '###....######....###',
    '###.b..######..r.###',
    '###....######....###',
-   '####............####',
+   '####.........p..####',
    '####..t..S...b..####',
    '####............####',
    '####################',
 ];
+
+/** Map letters that mark monster ambush spots, keyed to MONSTERS ids. */
+export const CRYPT_SPAWN_TYPES = { k: 'skeleton', p: 'spider', w: 'wraith' };
+
+/** @return {Array<{type: string, x: number, z: number}>} monster spawn points */
+export function cryptSpawns() {
+   const spawns = [];
+   for (let row = 0; row < CRYPT_ROWS; row++) {
+      for (let col = 0; col < CRYPT_COLS; col++) {
+         const type = CRYPT_SPAWN_TYPES[CRYPT_MAP[row][col]];
+         if (type) spawns.push({ type, ...cryptTileCenter(col, row) });
+      }
+   }
+   return spawns;
+}
 
 export const CRYPT_ROWS = CRYPT_MAP.length;
 export const CRYPT_COLS = CRYPT_MAP[0].length;

@@ -35,12 +35,18 @@ npm test        # headless smoke tests of the game logic
 | Click inventory items | Use / equip |
 | Click recipes | Craft |
 
-After defeating the Pale Wyrm, the 3D epilogue puts you in the boots of a
-caped thief exploring a torchlit crypt: **arrow keys / WASD** (or the touch
-d-pad) move in eight directions in real time, the dark revealing itself as
-your torch approaches. A corner minimap charts only what the torch has
-revealed (**M** toggles it). **Enter** (or the d-pad's center ⏎ on touch)
-wakes you from the vision once the lore finishes.
+In the 3D crypt you play a caped thief exploring by torchlight: **arrow
+keys / WASD** (or the touch d-pad) move in eight directions in real time,
+the dark revealing itself as your torch approaches. Skeletons, crypt
+spiders, and wall-phasing wraiths lurk in the unrevealed black — attacks
+are explicit: press **Space** or **X** (or the d-pad's center **⚔**) to
+swing your dagger; walking into an enemy does nothing but get you bitten.
+Kills feed xp, gold, and material drops into the same inventory as the 2D
+game, and the pack overlay (**I**) lets you use, equip, and craft mid-fight.
+A corner minimap charts revealed ground, awake monsters, and dropped loot
+(**M** toggles it). After defeating the Pale Wyrm, the crypt instead plays
+as the peaceful epilogue vision — **Enter** (or the center **⏎**) wakes you
+once the lore finishes.
 
 Anywhere in the game, **F** (or the ⛶ button) toggles fullscreen, **I**
 opens the inventory overlay, and **C** opens the character sheet

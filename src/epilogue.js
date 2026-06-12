@@ -3,6 +3,7 @@ import {
    CRYPT_MAP, CRYPT_ROWS, CRYPT_COLS, CRYPT_TILE,
    cryptTileCenter, cryptBlockedAt, cryptStart,
 } from './crypt.js';
+import { CryptSim } from './cryptCombat.js';
 
 const WALL_HEIGHT = 2.6;
 const MOVE_SPEED = 4.2;     // units / second
@@ -18,15 +19,24 @@ const REVEAL_SPEED = 2.4;   // reveal opacity per second
  * (a 3D fog of war). Beyond the broken north wall, something vast watches.
  * Built entirely from procedural geometry and materials — no external assets.
  *
+ * When `opts.game` is a live run (`status === 'playing'`), a `CryptSim`
+ * brings the crypt to life: monsters lunge out of the unrevealed dark, the
+ * dagger swings (Space/X or the d-pad's center button), and kills feed xp,
+ * loot, and gold back into the shared player state.
+ *
  * @param {HTMLCanvasElement} canvas
  * @param {number} width - render width in CSS pixels
  * @param {number} height - render height in CSS pixels
+ * @param {object} [opts]
+ * @param {import('./game.js').Game} [opts.game] - live run to fight with
+ * @param {() => void} [opts.onStateChange] - player state changed (refresh UI)
+ * @param {() => void} [opts.onHeroDeath] - hp hit 0; caller tears the scene down
  *
- * @return {{keys: Set<string>, dispose: () => void}} controller to tear down
- *   the scene; `keys` holds the same lowercased key names as `keydown`
+ * @return {{keys: Set<string>, sim: CryptSim|null, attack: () => void,
+ *   dispose: () => void}} controller; `keys` holds lowercased keydown names
  *   (e.g. `'arrowup'`) and can be mutated by touch controls to drive movement
  */
-export function startEpilogue(canvas, width, height) {
+export function startEpilogue(canvas, width, height, opts = {}) {
    const renderer = new THREE.WebGLRenderer({ canvas, antialias: true });
    renderer.setPixelRatio(Math.min(window.devicePixelRatio || 1, 2));
    renderer.setSize(width, height);
@@ -67,6 +77,29 @@ export function startEpilogue(canvas, width, height) {
 
    const embers = buildEmbers();
    scene.add(embers.points);
+
+   // live combat sim (only when entered with an ongoing run)
+   const sim = opts.game && opts.game.status === 'playing'
+      ? new CryptSim(opts.game, Math.floor(Math.random() * 2 ** 31))
+      : null;
+   const onStateChange = opts.onStateChange || (() => {});
+   const onHeroDeath = opts.onHeroDeath || (() => {});
+   const monsterViews = new Map();
+   const lootViews = new Map();
+   const dying = [];
+   let stateDirty = false;
+   let heroDead = false;
+   let swingT = 0;
+   let camShake = 0;
+   if (sim) {
+      for (const m of sim.monsters) {
+         const view = buildMonsterView(m.type);
+         view.group.position.set(m.x, 0, m.z);
+         view.group.visible = false;
+         scene.add(view.group);
+         monsterViews.set(m.key, view);
+      }
+   }
 
    // hero wakes in the start chamber, facing north toward the Eye
    const start = cryptStart();
@@ -128,18 +161,69 @@ export function startEpilogue(canvas, width, height) {
          hero3.angle += d * Math.min(1, dt * 10);
       }
 
+      swingT = Math.max(0, swingT - dt * 4);
+      camShake = Math.max(0, camShake - dt * 3);
+
       hero.group.position.set(hero3.x, 0, hero3.z);
       hero.group.rotation.y = hero3.angle;
-      hero.animate(t, dt, speedFactor);
+      hero.animate(t, dt, speedFactor, swingT);
+
+      if (sim) {
+         if (keys.has(' ') || keys.has('x')) doAttack();
+         sim.update(dt, hero3);
+         for (const ev of sim.drainEvents()) handleEvent(ev);
+
+         for (const m of sim.monsters) {
+            const view = monsterViews.get(m.key);
+            if (!view || m.dead) continue;
+            view.group.position.set(m.x, 0, m.z);
+            const dist = Math.hypot(m.x - hero3.x, m.z - hero3.z);
+            view.group.visible = dist < REVEAL_RADIUS + 1.5;
+            if (view.group.visible) {
+               view.group.rotation.y = Math.atan2(hero3.x - m.x, hero3.z - m.z);
+               view.flash = Math.max(0, view.flash - dt);
+               view.group.scale.setScalar(1 + view.flash * 1.4);
+               view.animate(t, m.awake);
+            }
+         }
+
+         for (let i = dying.length - 1; i >= 0; i--) {
+            const d = dying[i];
+            d.t += dt;
+            const k = Math.min(1, d.t / 0.7);
+            d.view.group.scale.setScalar(Math.max(0.01, 1 - k * 0.8));
+            d.view.group.position.y = -0.7 * k;
+            if (k >= 1) {
+               removeFromScene(d.view.group);
+               dying.splice(i, 1);
+            }
+         }
+
+         for (const [, lootView] of lootViews) {
+            lootView.group.position.y = 0.25 + Math.sin(t * 3 + lootView.phase) * 0.07;
+            lootView.group.rotation.y = t * 1.5 + lootView.phase;
+         }
+
+         if (stateDirty) {
+            stateDirty = false;
+            onStateChange();
+         }
+         if (heroDead) {
+            onHeroDeath();
+            return;
+         }
+      }
 
       updateReveal(pending, hero3.x, hero3.z, dt, revealedTiles);
       if (!eyeKnown) eyeKnown = rubbleKeys.some((key) => revealedTiles.has(key));
-      if (minimap) drawMinimap(minimap, hero3, revealedTiles, eyeKnown);
+      if (minimap) drawMinimap(minimap, hero3, revealedTiles, eyeKnown, sim);
 
       camera.position.lerp(
          new THREE.Vector3(hero3.x + camOffset.x, camOffset.y, hero3.z + camOffset.z),
          0.1
       );
+      camera.position.x += (Math.random() - 0.5) * 0.22 * camShake;
+      camera.position.y += (Math.random() - 0.5) * 0.16 * camShake;
       camera.lookAt(hero3.x, 0.9, hero3.z);
 
       for (const brazier of braziers) {
@@ -154,8 +238,65 @@ export function startEpilogue(canvas, width, height) {
       renderer.render(scene, camera);
    }
 
+   /** Swings the dagger; renderer-side feedback comes back via events. */
+   function doAttack() {
+      if (!sim) return;
+      if (sim.heroAttack(hero3)) swingT = 1;
+      for (const ev of sim.drainEvents()) handleEvent(ev);
+   }
+
+   function handleEvent(ev) {
+      if (ev.type === 'monsterHit') {
+         const view = monsterViews.get(ev.key);
+         if (view) view.flash = 0.18;
+         stateDirty = true;
+      } else if (ev.type === 'monsterDie') {
+         const view = monsterViews.get(ev.key);
+         if (view) {
+            dying.push({ view, t: 0 });
+            monsterViews.delete(ev.key);
+         }
+         stateDirty = true;
+      } else if (ev.type === 'heroHit') {
+         camShake = 1;
+         stateDirty = true;
+      } else if (ev.type === 'heroDeath') {
+         heroDead = true;
+         stateDirty = true;
+      } else if (ev.type === 'lootSpawn') {
+         const view = buildLootView(ev.loot);
+         scene.add(view.group);
+         lootViews.set(ev.loot.key, view);
+      } else if (ev.type === 'lootTaken') {
+         const view = lootViews.get(ev.key);
+         if (view) {
+            removeFromScene(view.group);
+            lootViews.delete(ev.key);
+         }
+         stateDirty = true;
+      } else if (ev.type === 'wake') {
+         stateDirty = true;
+      }
+   }
+
+   /** Removes a group and frees its GPU resources (it won't be in the final traverse). */
+   function removeFromScene(group) {
+      scene.remove(group);
+      group.traverse((obj) => {
+         if (obj.geometry) obj.geometry.dispose();
+         if (obj.material) {
+            for (const mat of Array.isArray(obj.material) ? obj.material : [obj.material]) {
+               if (mat.map) mat.map.dispose();
+               mat.dispose();
+            }
+         }
+      });
+   }
+
    return {
       keys,
+      sim,
+      attack: doAttack,
       dispose() {
          cancelAnimationFrame(raf);
          window.removeEventListener('keydown', onKeyDown);
@@ -232,10 +373,11 @@ function setupMinimap() {
 
 /**
  * Redraws the minimap: only torch-revealed tiles appear, with brazier dots,
- * a gold arrow for the hero's position/facing, and — once the rubble vantage
- * has been found — a red glow at the north edge marking the Eye.
+ * awake monsters in red, dropped loot in gold, a gold arrow for the hero's
+ * position/facing, and — once the rubble vantage has been found — a red
+ * glow at the north edge marking the Eye.
  */
-function drawMinimap(minimap, hero3, revealedTiles, eyeKnown) {
+function drawMinimap(minimap, hero3, revealedTiles, eyeKnown, sim) {
    const { canvas, ctx, scale } = minimap;
    ctx.fillStyle = '#050408';
    ctx.fillRect(0, 0, canvas.width, canvas.height);
@@ -260,6 +402,27 @@ function drawMinimap(minimap, hero3, revealedTiles, eyeKnown) {
       ctx.beginPath();
       ctx.arc(canvas.width / 2, scale * 0.7, scale * 0.55, 0, Math.PI * 2);
       ctx.fill();
+   }
+
+   const toMap = (x, z) => [
+      (x / CRYPT_TILE + CRYPT_COLS / 2) * scale,
+      (z / CRYPT_TILE + CRYPT_ROWS / 2) * scale,
+   ];
+
+   if (sim) {
+      ctx.fillStyle = '#ffd75e';
+      for (const piece of sim.loot) {
+         const [lx, ly] = toMap(piece.x, piece.z);
+         ctx.fillRect(lx - scale * 0.18, ly - scale * 0.18, scale * 0.36, scale * 0.36);
+      }
+      ctx.fillStyle = '#e0392b';
+      for (const m of sim.monsters) {
+         if (m.dead || !m.awake) continue;
+         const [mx, my] = toMap(m.x, m.z);
+         ctx.beginPath();
+         ctx.arc(mx, my, scale * 0.32, 0, Math.PI * 2);
+         ctx.fill();
+      }
    }
 
    // hero arrow: map north is up, so a hero angle of PI (facing -z) points up
@@ -573,15 +736,18 @@ function buildHero() {
    }
    for (let i = 0; i < trailCount; i++) resetEmber(i);
 
-   function animate(t, dt, speedFactor) {
+   function animate(t, dt, speedFactor, attackT = 0) {
       // sneak-run: lean into the dark, slight crouch, quick leg swing
-      body.rotation.x = 0.18 * speedFactor;
+      body.rotation.x = 0.18 * speedFactor + attackT * 0.12;
       body.position.y = -0.05 * speedFactor + Math.sin(t * 2) * 0.012;
 
       const swing = Math.sin(t * 10) * 0.55 * speedFactor;
       legL.rotation.x = swing;
       legR.rotation.x = -swing;
-      armL.rotation.x = 1.15 + Math.sin(t * 10) * 0.18 * speedFactor;
+
+      // dagger jab: arm thrusts forward over the swing's decay
+      armL.rotation.x = 1.15 - attackT * 0.85 + Math.sin(t * 10) * 0.18 * speedFactor;
+      dagger.position.z = 0.42 + attackT * 0.32;
 
       // cape: drapes at rest, billows and ripples behind him at speed
       const pos = capeGeo.attributes.position;
@@ -613,6 +779,172 @@ function buildHero() {
    }
 
    return { group, animate };
+}
+
+/** Picks the primitive-built model for a monster type. */
+function buildMonsterView(type) {
+   const view = type === 'spider' ? buildSpiderView()
+      : type === 'wraith' ? buildWraithView()
+      : buildSkeletonView();
+   view.flash = 0;
+   return view;
+}
+
+/** A shambling skeleton with ember eyes and a corroded blade. */
+function buildSkeletonView() {
+   const group = new THREE.Group();
+   const bone = new THREE.MeshStandardMaterial({ color: 0xd8d2bc, roughness: 0.85 });
+
+   const torso = new THREE.Mesh(new THREE.CapsuleGeometry(0.2, 0.42, 4, 8), bone);
+   torso.position.y = 1.0;
+   group.add(torso);
+
+   const skull = new THREE.Mesh(new THREE.SphereGeometry(0.16, 12, 12), bone);
+   skull.position.y = 1.48;
+   skull.scale.y = 0.9;
+   group.add(skull);
+
+   const eyeMat = new THREE.MeshStandardMaterial({ color: 0x000000, emissive: 0xff5500, emissiveIntensity: 1.6 });
+   for (const side of [-1, 1]) {
+      const eye = new THREE.Mesh(new THREE.SphereGeometry(0.03, 6, 6), eyeMat);
+      eye.position.set(side * 0.06, 1.5, 0.13);
+      group.add(eye);
+   }
+
+   const limbGeo = new THREE.CylinderGeometry(0.045, 0.05, 0.55, 6);
+   const armL = new THREE.Mesh(limbGeo, bone);
+   const armR = new THREE.Mesh(limbGeo, bone);
+   armL.position.set(-0.3, 1.05, 0);
+   armR.position.set(0.3, 1.05, 0);
+   group.add(armL, armR);
+
+   const legL = new THREE.Mesh(limbGeo, bone);
+   const legR = new THREE.Mesh(limbGeo, bone);
+   legL.position.set(-0.11, 0.32, 0);
+   legR.position.set(0.11, 0.32, 0);
+   group.add(legL, legR);
+
+   const blade = new THREE.Mesh(
+      new THREE.BoxGeometry(0.05, 0.5, 0.09),
+      new THREE.MeshStandardMaterial({ color: 0x5e6166, roughness: 0.5, metalness: 0.7 })
+   );
+   blade.position.set(0.36, 0.85, 0.18);
+   blade.rotation.x = 0.9;
+   group.add(blade);
+
+   function animate(t, awake) {
+      const drive = awake ? 1 : 0.15;
+      group.rotation.z = Math.sin(t * 5) * 0.06 * drive;
+      const step = Math.sin(t * 7) * 0.4 * drive;
+      legL.rotation.x = step;
+      legR.rotation.x = -step;
+      armL.rotation.x = -step * 0.7;
+      armR.rotation.x = step * 0.7;
+   }
+
+   return { group, animate };
+}
+
+/** A low, scuttling crypt spider with burning red eyes. */
+function buildSpiderView() {
+   const group = new THREE.Group();
+   const chitin = new THREE.MeshStandardMaterial({ color: 0x1d1a16, roughness: 0.9 });
+
+   const body = new THREE.Mesh(new THREE.SphereGeometry(0.3, 12, 12), chitin);
+   body.position.y = 0.32;
+   body.scale.set(1, 0.7, 1.2);
+   group.add(body);
+
+   const head = new THREE.Mesh(new THREE.SphereGeometry(0.15, 10, 10), chitin);
+   head.position.set(0, 0.3, 0.36);
+   group.add(head);
+
+   const eyeMat = new THREE.MeshStandardMaterial({ color: 0x000000, emissive: 0xff2200, emissiveIntensity: 2 });
+   for (const side of [-1, 1]) {
+      const eye = new THREE.Mesh(new THREE.SphereGeometry(0.035, 6, 6), eyeMat);
+      eye.position.set(side * 0.06, 0.34, 0.48);
+      group.add(eye);
+   }
+
+   const legs = [];
+   const legGeo = new THREE.CylinderGeometry(0.018, 0.018, 0.55, 5);
+   for (const side of [-1, 1]) {
+      for (let i = 0; i < 4; i++) {
+         const leg = new THREE.Mesh(legGeo, chitin);
+         leg.position.set(side * 0.3, 0.28, -0.25 + i * 0.17);
+         leg.rotation.z = side * 1.15;
+         legs.push({ mesh: leg, base: side * 1.15, phase: i * 1.7 + (side > 0 ? 0.9 : 0) });
+         group.add(leg);
+      }
+   }
+
+   function animate(t, awake) {
+      const drive = awake ? 1 : 0.25;
+      for (const leg of legs) {
+         leg.mesh.rotation.z = leg.base + Math.sin(t * 16 + leg.phase) * 0.13 * drive;
+      }
+      body.position.y = 0.32 + Math.sin(t * 9) * 0.015 * drive;
+   }
+
+   return { group, animate };
+}
+
+/** A drifting wraith: a translucent shroud around a cold inner light. */
+function buildWraithView() {
+   const group = new THREE.Group();
+
+   const shroud = new THREE.Mesh(
+      new THREE.ConeGeometry(0.38, 1.5, 10, 1, true),
+      new THREE.MeshStandardMaterial({
+         color: 0x141026, roughness: 1,
+         transparent: true, opacity: 0.78, side: THREE.DoubleSide,
+      })
+   );
+   shroud.position.y = 0.95;
+   group.add(shroud);
+
+   const core = new THREE.Mesh(
+      new THREE.SphereGeometry(0.12, 10, 10),
+      new THREE.MeshStandardMaterial({ color: 0x224436, emissive: 0x7dffd2, emissiveIntensity: 2 })
+   );
+   core.position.y = 1.1;
+   group.add(core);
+
+   const glow = new THREE.PointLight(0x66ffcc, 0.7, 5, 2);
+   glow.position.y = 1.1;
+   group.add(glow);
+
+   function animate(t, awake) {
+      const drift = Math.sin(t * 2) * 0.12;
+      shroud.position.y = 0.95 + drift;
+      core.position.y = 1.1 + drift;
+      glow.position.y = 1.1 + drift;
+      shroud.rotation.y = t * 0.6;
+      shroud.material.opacity = 0.7 + Math.sin(t * 3) * 0.08;
+      glow.intensity = (awake ? 0.9 : 0.5) + Math.sin(t * 4) * 0.15;
+   }
+
+   return { group, animate };
+}
+
+/** Tints for dropped materials; gold piles get their own octahedron. */
+const LOOT_COLORS = {
+   hide: 0x8a5a33, bone: 0xe6dec4, gem: 0xd03048, mushroom: 0xb08ab0,
+   iron: 0x9aa0aa, wood: 0x8a6a3c, herb: 0x57904a,
+};
+
+/** A small glowing pickup bobbing where a monster fell. */
+function buildLootView(loot) {
+   const isGold = loot.gold !== undefined;
+   const color = isGold ? 0xe8c34a : (LOOT_COLORS[loot.id] || 0xc9a227);
+   const mesh = new THREE.Mesh(
+      isGold ? new THREE.OctahedronGeometry(0.14, 0) : new THREE.IcosahedronGeometry(0.12, 0),
+      new THREE.MeshStandardMaterial({ color, emissive: color, emissiveIntensity: 0.45, roughness: 0.4 })
+   );
+   const group = new THREE.Group();
+   group.add(mesh);
+   group.position.set(loot.x, 0.25, loot.z);
+   return { group, phase: Math.random() * Math.PI * 2 };
 }
 
 /**

@@ -7,7 +7,8 @@ import { Rand } from '../src/rng.js';
 import { generateDungeon } from '../src/dungeon.js';
 import { Game } from '../src/game.js';
 import { MAX_DEPTH, RECIPES } from '../src/data.js';
-import { CRYPT_MAP, cryptTile, isCryptWalkable } from '../src/crypt.js';
+import { CRYPT_MAP, cryptTile, isCryptWalkable, cryptSpawns } from '../src/crypt.js';
+import { CryptSim } from '../src/cryptCombat.js';
 
 let passed = 0;
 function ok(label, fn) {
@@ -145,6 +146,84 @@ ok('the rubble vantage onto the Eye is reachable', () => {
       if (cryptTile(col, row - 1) === '=') vantage = true;
    }
    assert.ok(vantage, 'no reachable tile borders the rubble wall');
+});
+
+console.log('crypt combat');
+
+ok('monsters spawn from the crypt map markers', () => {
+   const sim = new CryptSim(new Game(31), 1);
+   assert.equal(sim.monsters.length, cryptSpawns().length);
+   assert.ok(sim.monsters.length >= 3, 'expected several ambushes');
+   for (const m of sim.monsters) assert.ok(m.hp > 0 && m.name);
+});
+
+ok('an explicit dagger swing kills a monster and grants xp', () => {
+   const game = new Game(33);
+   const sim = new CryptSim(game, 2);
+   const m = sim.monsters[0];
+   // stand just south of it, facing north (angle PI -> facing (0, -1))
+   const hero = { x: m.x, z: m.z + 1, angle: Math.PI };
+   const levelXp = () => game.player.level * 1000 + game.player.xp;
+   const before = levelXp();
+   for (let i = 0; i < 40 && !m.dead; i++) {
+      sim.heroCd = 0;
+      sim.heroAttack(hero);
+   }
+   assert.ok(m.dead, 'monster should die to repeated swings');
+   assert.ok(levelXp() > before, 'xp granted');
+});
+
+ok('walking into a monster does not damage it (attacks are explicit)', () => {
+   const game = new Game(35);
+   const sim = new CryptSim(game, 3);
+   const m = sim.monsters[0];
+   game.player.hp = 9999;
+   game.player.maxHp = 9999;
+   for (let i = 0; i < 100; i++) sim.update(0.05, { x: m.x, z: m.z, angle: 0 });
+   assert.equal(m.hp, m.maxHp, 'contact alone must not hurt the monster');
+});
+
+ok('awakened monsters chase and wound the hero', () => {
+   const game = new Game(37);
+   game.player.hp = 9999;
+   game.player.maxHp = 9999;
+   const sim = new CryptSim(game, 4);
+   const m = sim.monsters[0];
+   const hero = { x: m.x, z: m.z + 2, angle: 0 };
+   for (let i = 0; i < 400; i++) sim.update(0.05, hero);
+   assert.ok(game.player.hp < 9999, 'hero should have been hit');
+});
+
+ok('dropped loot is collected into the shared inventory', () => {
+   const game = new Game(39);
+   const sim = new CryptSim(game, 5);
+   const goldBefore = game.player.gold;
+   sim.spawnLoot({ id: 'bone' }, 1, 1);
+   sim.spawnLoot({ gold: 7 }, 1, 1);
+   sim.collectLoot({ x: 1, z: 1 });
+   assert.ok((game.player.inv.bone || 0) >= 1, 'bone picked up');
+   assert.equal(game.player.gold, goldBefore + 7);
+});
+
+ok('using a potion in the crypt heals without ticking the 2D world', () => {
+   const game = new Game(41);
+   const sim = new CryptSim(game, 6);
+   game.player.hp = 5;
+   const turn = game.turn;
+   assert.equal(sim.useItem('potion'), true);
+   assert.ok(game.player.hp > 5);
+   assert.equal(game.turn, turn, '2D turn counter must not advance');
+});
+
+ok('crafting in the crypt consumes materials without ticking the 2D world', () => {
+   const game = new Game(43);
+   const sim = new CryptSim(game, 7);
+   game.player.inv = { herb: 2 };
+   const turn = game.turn;
+   assert.equal(sim.craft('potion'), true);
+   assert.equal(game.player.inv.potion, 1);
+   assert.equal(game.player.inv.herb, undefined);
+   assert.equal(game.turn, turn);
 });
 
 console.log(`\n${passed} checks passed.`);
